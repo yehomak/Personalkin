@@ -73,3 +73,15 @@ Single userId across all documents — no need to filter by userId in MCP tools.
   - docker-compose mounts `./db:/data` so the file is accessible from host
 - MyCalendar MongoDB: Atlas cluster, db `mycalendar`
   - Always available (cloud); no local service needed
+
+## Gmail (claude.ai MCP — not part of this server)
+Gmail is connected via the built-in Claude Code `claude.ai Gmail` MCP, not built into personalkin.
+Authenticate with `/mcp` → select "claude.ai Gmail" if the session is new.
+
+Available tools (load with ToolSearch): `search_threads`, `get_thread`, `list_labels`, `label_thread`
+
+Use alongside spending tools to cross-reference receipts, booking confirmations, and invoices.
+Useful patterns:
+- Find flight bookings: `from:wizzair` or `from:ryanair` with a date range
+- PAYPRO S.A. in DuckDB = WizzAir/flight payment processor — often miscategorized as Online Shopping
+- Match invoice dates to DuckDB `booking_date` to confirm which charge belongs to which booking
