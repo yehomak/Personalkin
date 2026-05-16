@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secrets
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Personal context
+context/
+
+# Claude Code
+.claude/settings.local.json
