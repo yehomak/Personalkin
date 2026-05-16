@@ -149,3 +149,44 @@ def get_recent_transactions(
         for r in rows
     ]
     return json.dumps({"count": len(txns), "transactions": txns}, indent=2)
+
+
+def get_transactions_in_range(from_date: str, to_date: str) -> str:
+    """
+    All transactions between two dates (inclusive), chronological order.
+    Dates as YYYY-MM-DD. Includes all directions — good for trip/event cost analysis.
+    """
+    conn = _conn()
+    rows = conn.execute(
+        """
+        SELECT booking_date, counterparty, amount, currency, category, direction
+        FROM transactions
+        WHERE booking_date BETWEEN ? AND ?
+          AND direction != 'internal'
+        ORDER BY booking_date, amount
+        """,
+        [from_date, to_date],
+    ).fetchall()
+
+    txns = [
+        {
+            "date": str(r[0]),
+            "counterparty": r[1],
+            "amount": r[2],
+            "currency": r[3],
+            "category": r[4],
+            "direction": r[5],
+        }
+        for r in rows
+    ]
+    total_expense = round(sum(t["amount"] for t in txns if t["direction"] == "expense"), 2)
+    total_income  = round(sum(t["amount"] for t in txns if t["direction"] == "income"),  2)
+    return json.dumps({
+        "from": from_date,
+        "to": to_date,
+        "total_expense": total_expense,
+        "total_income": total_income,
+        "net": round(total_expense + total_income, 2),
+        "count": len(txns),
+        "transactions": txns,
+    }, indent=2)

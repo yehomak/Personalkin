@@ -3,6 +3,7 @@ from tools.spending import (
     get_spending_summary,
     get_spending_by_category,
     get_recent_transactions,
+    get_transactions_in_range,
 )
 from tools.calendar import get_upcoming_events, get_events_on_date
 
@@ -11,6 +12,7 @@ mcp = FastMCP("personalkin")
 mcp.tool()(get_spending_summary)
 mcp.tool()(get_spending_by_category)
 mcp.tool()(get_recent_transactions)
+mcp.tool()(get_transactions_in_range)
 mcp.tool()(get_upcoming_events)
 mcp.tool()(get_events_on_date)
 
