@@ -5,6 +5,8 @@ from pathlib import Path
 
 import duckdb
 
+HEALTH_DIR = Path(__file__).parent.parent / "context" / "health"
+
 DB_PATH = os.environ.get(
     "GARMIN_DB",
     str(Path.home() / "Projects/garmin-sync/garmin.duckdb"),
@@ -316,3 +318,69 @@ def get_health_in_range(from_date: str, to_date: str) -> str:
             for r in activities
         ],
     }, indent=2)
+
+
+def get_health_profile() -> str:
+    """
+    Full health reference profile — all Garmin metrics with descriptions, normal ranges,
+    and your personal baselines.
+    Covers: sleep stages, HRV, RHR, Body Battery, stress, SpO2, training readiness,
+    endurance score, fitness age, metric relationships, and watch face widget guide.
+    Use this to understand what a metric means or to build cross-domain insights.
+    Run scripts/generate_profile.py to regenerate after accumulating more data.
+    """
+    path = HEALTH_DIR / "profile.md"
+    if not path.exists():
+        return json.dumps({
+            "error": "health-profile.md not found. Run: python scripts/generate_profile.py"
+        })
+    return path.read_text()
+
+
+def get_latest_health_report() -> str:
+    """
+    Most recent weekly health report (YYYY-WXX) — narrative summary, 7-day trends with
+    ASCII sparklines, day-by-day table, sleep detail, training section with explanations,
+    highlights, baseline comparison, and raw data.
+    Run scripts/generate_report.py to regenerate for the current week.
+    """
+    reports_dir = HEALTH_DIR / "reports"
+    if not reports_dir.exists():
+        return json.dumps({"error": "No health reports found. Run: python scripts/generate_report.py"})
+    reports = sorted(reports_dir.glob("????-W??.md"), reverse=True)
+    if not reports:
+        return json.dumps({"error": "No weekly reports found. Run: python scripts/generate_report.py"})
+    return reports[0].read_text()
+
+
+def get_latest_monthly_report() -> str:
+    """
+    Most recent monthly health report (YYYY-MM) — month averages vs prior baseline,
+    fitness trajectory, training volume by type, week-by-week breakdown, highlights,
+    and full raw data table.
+    Run scripts/generate_monthly_report.py to regenerate.
+    """
+    reports_dir = HEALTH_DIR / "reports"
+    if not reports_dir.exists():
+        return json.dumps({"error": "No reports found. Run: python scripts/generate_monthly_report.py"})
+    reports = sorted(reports_dir.glob("????-??.md"), reverse=True)
+    if not reports:
+        return json.dumps({"error": "No monthly reports found. Run: python scripts/generate_monthly_report.py"})
+    return reports[0].read_text()
+
+
+def get_activity_report(activity_date: str) -> str:
+    """
+    Per-activity breakdown for a specific date (YYYY-MM-DD).
+    Covers: key metrics, pace, training effect with explanation, HR zone breakdown,
+    effort context, recovery impact on next-day HRV and readiness, and raw data.
+    If multiple activities exist for the date, returns all of them concatenated.
+    Run scripts/generate_activities.py to generate activity files.
+    """
+    activities_dir = HEALTH_DIR / "activities"  # context/health/activities/
+    if not activities_dir.exists():
+        return json.dumps({"error": "No activity reports. Run: python scripts/generate_activities.py"})
+    files = sorted(activities_dir.glob(f"{activity_date}-*.md"))
+    if not files:
+        return json.dumps({"error": f"No activity report for {activity_date}. Run: python scripts/generate_activities.py --date {activity_date}"})
+    return "\n\n---\n\n".join(f.read_text() for f in files)

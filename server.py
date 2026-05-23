@@ -14,6 +14,10 @@ from tools.garmin import (
     get_training_load,
     get_health_on_date,
     get_health_in_range,
+    get_health_profile,
+    get_latest_health_report,
+    get_latest_monthly_report,
+    get_activity_report,
 )
 
 mcp = FastMCP("personalkin")
@@ -31,6 +35,10 @@ mcp.tool()(get_body_battery_trend)
 mcp.tool()(get_training_load)
 mcp.tool()(get_health_on_date)
 mcp.tool()(get_health_in_range)
+mcp.tool()(get_health_profile)
+mcp.tool()(get_latest_health_report)
+mcp.tool()(get_latest_monthly_report)
+mcp.tool()(get_activity_report)
 
 if __name__ == "__main__":
     mcp.run()
