@@ -128,7 +128,7 @@ User asks about a charge → Claude queries DuckDB for transaction → Claude se
 
 **Context-aware session:**
 ```
-Session starts → Claude reads context/me/now.md + context/me/core.md → User asks question → Claude uses MCP tools with awareness of personal context → answer is grounded in both data and life context
+Session starts → Claude reads context/me/*.md → User asks question → Claude uses MCP tools with awareness of personal context → answer is grounded in both data and life context
 ```
 
 ---
