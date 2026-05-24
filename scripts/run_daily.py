@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Daily runner — sync Garmin data and generate activity files.
-Silent on success. macOS notification on failure.
-
-Cron: 0 8 * * 2-7  /Users/yegormakarenko/Projects/Personalkin/.venv/bin/python
-      /Users/yegormakarenko/Projects/Personalkin/scripts/run_daily.py
+Daily runner — sync Garmin data, generate activity files, notify with today's stats.
+Run Tue–Sun at 10am via launchd (com.personalkin.daily.plist).
 """
 
 import subprocess
 import sys
 from pathlib import Path
+from glob import glob
 
 GARMIN_SYNC   = Path.home() / "Projects/garmin-sync"
 PERSONALKIN   = Path(__file__).parent.parent
@@ -20,8 +18,14 @@ TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier"
 ENV               = {**__import__("os").environ, "GARMIN_DB": GARMIN_DB}
 
 
-def notify(title, message, sound="default"):
-    subprocess.run([TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound])
+REPORTS_DIR = PERSONALKIN / "context" / "health" / "reports"
+
+
+def notify(title, message, open_path=None, sound="default"):
+    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound, "-timeout", "15"]
+    if open_path:
+        cmd += ["-open", f"file://{open_path}"]
+    subprocess.run(cmd)
 
 
 def run(cmd, cwd=None, label=""):
@@ -37,19 +41,22 @@ def get_today_stats():
     import duckdb
     con = duckdb.connect(GARMIN_DB, read_only=True)
     row = con.execute("""
-        SELECT sleep_score, sleep_qualifier, hrv_last_night,
+        SELECT sleep_score, sleep_qualifier, hrv_last_night, hrv_weekly_avg,
                training_readiness_score, training_readiness_level, bb_end
         FROM health_days
         ORDER BY date DESC LIMIT 1
     """).fetchone()
     if not row:
         return "synced"
-    sleep, qualifier, hrv, readiness, level, bb = row
+    sleep, qualifier, hrv, hrv_avg, readiness, level, bb = row
     parts = []
     if sleep:
         parts.append(f"😴 Sleep {sleep:.0f} ({(qualifier or '')[:4]})")
     if hrv:
-        parts.append(f"💓 HRV {hrv:.0f}ms")
+        delta = f" ({'+' if hrv - hrv_avg >= 0 else ''}{hrv - hrv_avg:.0f})" if hrv_avg else ""
+        parts.append(f"💓 HRV {hrv:.0f}ms{delta}")
+    if bb:
+        parts.append(f"🔋 Battery {bb:.0f}")
     if readiness:
         parts.append(f"⚡ Readiness {readiness:.0f} ({(level or '').title()})")
     return "\n".join(parts) if parts else "synced"
@@ -59,4 +66,6 @@ if __name__ == "__main__":
     run([SYNC_VENV, "sync.py"], cwd=GARMIN_SYNC, label="garmin sync")
     run([MAIN_VENV, "scripts/generate_activities.py"], cwd=PERSONALKIN, label="activities")
     stats = get_today_stats()
-    notify("⌚ Personalkin — Daily Sync", stats)
+    reports = sorted(glob(str(REPORTS_DIR / "????-W??.md")))
+    latest_report = Path(reports[-1]) if reports else None
+    notify("⌚ Personalkin — Daily Sync", stats, open_path=latest_report)

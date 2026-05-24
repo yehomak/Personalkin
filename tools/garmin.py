@@ -7,10 +7,9 @@ import duckdb
 
 HEALTH_DIR = Path(__file__).parent.parent / "context" / "health"
 
-DB_PATH = os.environ.get(
-    "GARMIN_DB",
-    str(Path.home() / "Projects/garmin-sync/garmin.duckdb"),
-)
+DB_PATH = os.environ.get("GARMIN_DB")
+if not DB_PATH:
+    raise RuntimeError("GARMIN_DB env var is not set — add it to ~/.claude.json MCP server env block")
 
 
 def _conn() -> duckdb.DuckDBPyConnection:

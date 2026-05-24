@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-Weekly runner — sync, generate weekly report, notify with stats.
-Run every Monday at 8am.
-
-Cron: 0 8 * * 1  /Users/yegormakarenko/Projects/Personalkin/.venv/bin/python
-      /Users/yegormakarenko/Projects/Personalkin/scripts/run_weekly.py
+Weekly runner — sync, generate weekly report for the previous week, notify with stats.
+Run every Monday at 10am via launchd (com.personalkin.weekly.plist).
 """
 
 import os
@@ -26,7 +23,7 @@ ENV               = {**os.environ, "GARMIN_DB": GARMIN_DB}
 
 
 def notify(title, message, open_path=None, sound="default"):
-    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound]
+    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound, "-timeout", "15"]
     if open_path:
         cmd += ["-open", f"file://{open_path}"]
     subprocess.run(cmd)
@@ -79,13 +76,14 @@ def get_stats(start, end):
 
 if __name__ == "__main__":
     today  = date.today()
-    monday = today - timedelta(days=today.weekday())
+    # Target the week that just completed (last Mon–Sun), not the current one
+    monday = today - timedelta(days=today.weekday()) - timedelta(days=7)
     sunday = monday + timedelta(days=6)
     week_label = monday.strftime("%G-W%V")
 
     run([SYNC_VENV, "sync.py"], cwd=GARMIN_SYNC, label="garmin sync")
     run([MAIN_VENV, "scripts/generate_activities.py"], cwd=PERSONALKIN, label="activities")
-    run([MAIN_VENV, "scripts/generate_report.py"], cwd=PERSONALKIN, label="weekly report")
+    run([MAIN_VENV, "scripts/generate_report.py", "--week", week_label], cwd=PERSONALKIN, label="weekly report")
 
     stats       = get_stats(monday.isoformat(), sunday.isoformat())
     report_path = REPORTS_DIR / f"{week_label}.md"

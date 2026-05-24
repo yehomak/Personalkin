@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 Monthly runner — generate monthly report for the previous month, notify with stats.
-Run on the 1st of each month at 8am.
-
-Cron: 0 8 1 * *  /Users/yegormakarenko/Projects/Personalkin/.venv/bin/python
-      /Users/yegormakarenko/Projects/Personalkin/scripts/run_monthly.py
+Run on the 1st of each month at 10am via launchd (com.personalkin.monthly.plist).
 """
 
 import os
@@ -26,7 +23,7 @@ ENV               = {**os.environ, "GARMIN_DB": GARMIN_DB}
 
 
 def notify(title, message, open_path=None, sound="default"):
-    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound]
+    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound, "-timeout", "15"]
     if open_path:
         cmd += ["-open", f"file://{open_path}"]
     subprocess.run(cmd)
