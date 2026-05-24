@@ -33,7 +33,7 @@ def notify(title, message, open_path=None, sound="default"):
 
 
 def notify_failure(step, error):
-    notify("Personalkin — Monthly Report Failed", f"{step}: {error[:80]}", sound="Basso")
+    notify("❌ Personalkin — Monthly Report Failed", f"{step}: {error[:80]}", sound="Basso")
 
 
 def run(cmd, cwd=None, label=""):
@@ -71,16 +71,16 @@ def get_stats(year, month):
     avg_sleep, avg_hrv, e_start, e_end = row
     parts = []
     if workouts:
-        parts.append(f"{workouts} workout{'s' if workouts > 1 else ''}")
+        parts.append(f"🏋️ {workouts} workout{'s' if workouts > 1 else ''}")
     if avg_sleep:
-        parts.append(f"Sleep avg {avg_sleep:.0f}")
+        parts.append(f"😴 Sleep avg {avg_sleep:.0f}")
     if avg_hrv:
-        parts.append(f"HRV avg {avg_hrv:.0f}ms")
+        parts.append(f"💓 HRV avg {avg_hrv:.0f}ms")
     if e_start and e_end and e_start != e_end:
         delta = e_end - e_start
-        parts.append(f"Endurance {'+' if delta >= 0 else ''}{delta:.0f}")
+        parts.append(f"📈 Endurance {'+' if delta >= 0 else ''}{delta:.0f}")
 
-    return " · ".join(parts) if parts else "ready"
+    return "\n".join(parts) if parts else "ready"
 
 
 if __name__ == "__main__":
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     report_path = REPORTS_DIR / f"{month_label}.md"
 
     notify(
-        title=f"Personalkin — {month_name}",
+        title=f"📆 Personalkin — {month_name}",
         message=stats,
         open_path=report_path if report_path.exists() else None,
     )

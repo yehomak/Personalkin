@@ -33,7 +33,7 @@ def notify(title, message, open_path=None, sound="default"):
 
 
 def notify_failure(step, error):
-    notify("Personalkin — Weekly Sync Failed", f"{step}: {error[:80]}", sound="Basso")
+    notify("❌ Personalkin — Weekly Sync Failed", f"{step}: {error[:80]}", sound="Basso")
 
 
 def run(cmd, cwd=None, label=""):
@@ -66,15 +66,15 @@ def get_stats(start, end):
     avg_sleep, avg_hrv, avg_readiness = row
     parts = []
     if avg_sleep:
-        parts.append(f"Sleep {avg_sleep:.0f}")
+        parts.append(f"😴 Sleep {avg_sleep:.0f}")
     if avg_hrv:
-        parts.append(f"HRV {avg_hrv:.0f}ms")
+        parts.append(f"💓 HRV {avg_hrv:.0f}ms")
     if workouts:
-        parts.append(f"{workouts} workout{'s' if workouts > 1 else ''}")
+        parts.append(f"🏋️ {workouts} workout{'s' if workouts > 1 else ''}")
     if avg_readiness:
-        parts.append(f"Readiness {avg_readiness:.0f}")
+        parts.append(f"⚡ Readiness {avg_readiness:.0f}")
 
-    return " · ".join(parts) if parts else "synced"
+    return "\n".join(parts) if parts else "synced"
 
 
 if __name__ == "__main__":
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     report_path = REPORTS_DIR / f"{week_label}.md"
 
     notify(
-        title=f"Personalkin — Week {week_label}",
+        title=f"📊 Personalkin — Week {week_label}",
         message=stats,
         open_path=report_path if report_path.exists() else None,
     )
