@@ -6,14 +6,26 @@ __pycache__/
 # Secrets
 .env
 .env.*
+*.key
+*.pem
+
+# Databases — never commit data files
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
 
 # macOS
 .DS_Store
 
-# Personal context
+# Personal context — never commit personal data
 context/
 notes/
 observations/
 
 # Claude Code
-.claude/settings.local.json
+.claude/

@@ -18,7 +18,7 @@ Suspicious for mid-month. Either salary hasn't arrived yet or the USD salary att
 ## MyCalendar
 
 **Times shown in UTC, not local** (high)
-`_fmt()` in `tools/calendar.py` returns raw UTC time. Every time displayed is 2 hours behind Warsaw local time in summer (CEST = UTC+2). Fix: convert to `Europe/Warsaw` before formatting.
+`_fmt()` in `tools/calendar.py` returns raw UTC time. Displayed times are behind local time depending on timezone offset. Fix: convert UTC to local timezone before formatting (e.g. via `zoneinfo`).
 
 **No look-back tool** (medium)
 `get_upcoming_events` and `get_events_on_date` only work forward or on a specific known date. Can't ask "what did I do last week?" without knowing exact dates. Add `get_past_events(days)`.
