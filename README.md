@@ -1,6 +1,6 @@
 # Personalkin
 
-Personal AI infrastructure — an MCP server that connects Claude Code to your real personal data so you can ask natural language questions about your own life.
+A personal assistant layer for Claude Code. Connects your spending, calendar, and Garmin health so you can ask questions in plain language.
 
 > **This is a personal implementation, not a plug-and-play tool.** It's wired to specific data sources (a spending tracker, a calendar app, and Garmin health data). Use it as a reference architecture and adapt the data sources to your own setup.
 
@@ -184,6 +184,3 @@ See `tools/spending.py` and `tools/garmin.py` for examples of DuckDB-backed tool
 
 ---
 
-## Known issues
-
-See [IMPROVEMENTS.md](IMPROVEMENTS.md) for tracked issues.
