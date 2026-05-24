@@ -77,9 +77,11 @@ Cron-driven pipeline that syncs data, generates report files, and sends macOS no
 
 | Script | Schedule | Actions |
 |---|---|---|
-| `run_daily.py` | Tue–Sun 10am | garmin sync → activities → notify (sleep/HRV/readiness) |
-| `run_weekly.py` | Mon 10am | garmin sync → activities → weekly report → notify (tap-to-open) |
-| `run_monthly.py` | 1st 10am | monthly report (prev month) → notify (tap-to-open) |
+| `run_daily.py` | Tue–Sun 10am | garmin sync → activities → notify (tap-to-open latest weekly report) |
+| `run_weekly.py` | Mon 10am | garmin sync → activities → prev-week report → notify (tap-to-open) |
+| `run_monthly.py` | 1st 10am | prev-month report → notify (tap-to-open) |
+
+Scheduled via launchd (`~/Library/LaunchAgents/com.personalkin.*.plist`) — fires on wake if Mac was asleep at scheduled time. Replaced cron for reliability.
 
 Generator scripts (called by runners, also usable standalone):
 - `generate_activities.py` — one `.md` per activity session

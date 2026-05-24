@@ -27,9 +27,9 @@ scripts/
   generate_report.py         — writes context/health/reports/YYYY-WXX.md (weekly)
   generate_monthly_report.py — writes context/health/reports/YYYY-MM.md (monthly)
   generate_activities.py     — writes context/health/activities/YYYY-MM-DD-type.md per session
-  run_daily.py               — cron wrapper: sync + activities + macOS notification
-  run_weekly.py              — cron wrapper: sync + weekly report + clickable notification
-  run_monthly.py             — cron wrapper: monthly report + clickable notification
+  run_daily.py               — launchd wrapper: sync + activities + macOS notification (tap-to-open weekly report)
+  run_weekly.py              — launchd wrapper: sync + prev-week report + clickable notification
+  run_monthly.py             — launchd wrapper: prev-month report + clickable notification
 requirements.txt   — mcp, duckdb, pymongo[srv]
 .venv/             — gitignored; install with: pip install -r requirements.txt
 ```
@@ -60,7 +60,8 @@ requirements.txt   — mcp, duckdb, pymongo[srv]
 - `GARMIN_DB` — absolute path to `garmin.duckdb` (lives in `~/Projects/garmin-sync/`)
 
 All three are set in the `env` block of the `personalkin` entry in `~/.claude.json`. Never default them in code.
-`GARMIN_DB` is also passed as an env var to the cron runner scripts via `ENV = {**os.environ, "GARMIN_DB": GARMIN_DB}`.
+`GARMIN_DB` is also passed as an env var to the launchd runner scripts via `ENV = {**os.environ, "GARMIN_DB": GARMIN_DB}`.
+Missing `GARMIN_DB` raises `RuntimeError` immediately — no silent fallback.
 
 ## DB schemas
 
@@ -109,18 +110,25 @@ Populated by `~/Projects/garmin-sync/sync.py` (separate repo, own venv).
   - Always available (cloud); no local service needed
 - Garmin DuckDB: `~/Projects/garmin-sync/garmin.duckdb`
   - Populated by `garmin-sync` repo's `sync.py` (separate venv at `~/Projects/garmin-sync/.venv`)
-  - Run manually or via cron (daily `run_daily.py`, weekly `run_weekly.py`)
+  - Run manually or via launchd (daily `run_daily.py`, weekly `run_weekly.py`)
 
-## Cron automation (scripts/)
-Three cron scripts run on schedule via `crontab -e`:
+## launchd automation (scripts/)
+Three scripts run on schedule via launchd — fires on wake if Mac was asleep at scheduled time:
 ```
-0 10 * * 2-7  .venv/bin/python scripts/run_daily.py   # Tue–Sun: sync + notify
-0 10 * * 1    .venv/bin/python scripts/run_weekly.py  # Monday: sync + weekly report + notify
-0 10 1 * *    .venv/bin/python scripts/run_monthly.py # 1st: prev-month report + notify
+~/Library/LaunchAgents/com.personalkin.daily.plist   — Tue–Sun 10am: sync + notify
+~/Library/LaunchAgents/com.personalkin.weekly.plist  — Mon 10am: sync + prev-week report + notify
+~/Library/LaunchAgents/com.personalkin.monthly.plist — 1st 10am: prev-month report + notify
 ```
-All three send macOS notifications via `/opt/homebrew/bin/terminal-notifier` (hardcoded — cron has minimal PATH).
-Weekly/monthly notifications are clickable and open the generated report file.
+All three send macOS notifications via `/opt/homebrew/bin/terminal-notifier` (hardcoded — launchd has minimal PATH).
+All notifications are tap-to-open: daily opens the latest weekly report, weekly/monthly open their generated file.
 Logs land in `/tmp/garmin-{daily,weekly,monthly}.log`.
+
+Manage with:
+```bash
+launchctl load   ~/Library/LaunchAgents/com.personalkin.daily.plist   # activate
+launchctl unload ~/Library/LaunchAgents/com.personalkin.daily.plist   # deactivate
+launchctl list | grep personalkin                                      # check status
+```
 
 ## Generated report files
 ```
