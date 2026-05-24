@@ -1,6 +1,8 @@
 # Personalkin
 
-Personal AI infrastructure. An MCP server that connects Claude Code to real personal data — spending, calendar, health, and life context — so you can ask natural language questions about your own life.
+Personal AI infrastructure — an MCP server that connects Claude Code to your real personal data so you can ask natural language questions about your own life.
+
+> **This is a personal implementation, not a plug-and-play tool.** It's wired to specific data sources (a spending tracker, a calendar app, and Garmin health data). Use it as a reference architecture and adapt the data sources to your own setup.
 
 ---
 
@@ -11,8 +13,7 @@ Instead of switching between apps, you ask Claude:
 - *"How much did I spend last month and on what?"*
 - *"What's on my calendar this week?"*
 - *"How did I sleep this week? Is my HRV trending up?"*
-- *"How much did the Rhodes trip cost me total?"*
-- *"Find the WizzAir charge that's miscategorized as Online Shopping"*
+- *"How much did the trip cost me total?"*
 - *"Am I saving money this quarter?"*
 - *"Show me last week's training load and how I recovered."*
 
@@ -20,19 +21,45 @@ Claude reads your actual data and answers with specifics.
 
 ---
 
-## Ecosystem
+## Architecture
 
-Personalkin sits at the center of several personal data sources:
+A [FastMCP](https://github.com/jlowin/fastmcp) server (stdio transport) exposes tools that query local and cloud data sources. Claude Code connects to it and calls tools on demand.
 
-| Source | Type | What it holds |
-|---|---|---|
-| SpendWisely | DuckDB (local file) | Bank transactions, categories, monthly summaries |
-| MyCalendar | MongoDB Atlas (cloud) | Events, categories, recurring entries |
-| Garmin | DuckDB (local file) | Daily health metrics, sleep, HRV, activity sessions |
-| Gmail | Claude.ai built-in MCP | Email threads, receipts, booking confirmations |
-| `context/` | Markdown files | Identity, goals, current life state, work context, health reports |
+```
+Claude Code session
+       │
+       ▼
+Personalkin MCP server (this repo)
+       │
+  ┌────┼────────────┐
+  ▼    ▼            ▼
+Spending        Calendar        Health
+(DuckDB)        (MongoDB)       (DuckDB)
+```
+
+| Data source | What it holds |
+|---|---|
+| Spending DB (DuckDB) | Bank transactions, categories, monthly summaries |
+| Calendar (MongoDB Atlas) | Events, categories, recurring entries |
+| Garmin (DuckDB) | Daily health metrics, sleep, HRV, activity sessions |
+| Gmail (Claude.ai built-in) | Email threads for cross-referencing receipts |
+| `context/` (markdown) | Personal background loaded into sessions manually |
 
 All connections are **read-only**. Nothing is written or modified.
+
+---
+
+## Prerequisites
+
+This project assumes you have:
+
+- **A spending data source** — this repo uses [SpendWisely](https://github.com/Yegor-M/SpendWisely) (a personal transaction tracker with a DuckDB backend). Swap it for any DuckDB or SQLite file with transaction data, or replace `tools/spending.py` entirely.
+- **A calendar data source** — this repo uses a personal MongoDB-backed calendar app. Swap it for Google Calendar, a local `.ics` file, or anything else by replacing `tools/calendar.py`.
+- **Garmin health data** — synced via [garmin-sync](https://github.com/Yegor-M/garmin-sync) (companion repo). Requires a Garmin Connect account and a Garmin device.
+- **Claude Code** — the CLI, with MCP server support.
+- **Python 3.13+**
+
+You only need the data sources you actually want to use — the server works with any subset.
 
 ---
 
@@ -47,10 +74,10 @@ Monthly income/expense/net breakdown for the past N months. Excludes internal tr
 Category breakdown sorted by total. Direction: `expense` (default), `income`, or `all`.
 
 **`get_recent_transactions(limit, category, direction)`**
-Newest transactions first. Filter by category (e.g. `Groceries`) or direction.
+Newest transactions first. Filter by category or direction.
 
 **`get_transactions_in_range(from_date, to_date)`**
-All transactions between two dates. Useful for trip cost analysis — just give the travel dates.
+All transactions between two dates. Useful for trip cost analysis.
 
 ### Calendar
 
@@ -66,78 +93,50 @@ All events on a specific date (`YYYY-MM-DD`).
 Today's metrics at a glance: sleep score, HRV, resting HR, body battery, stress, readiness.
 
 **`get_health_on_date(date)`**
-Full daily record for a specific date including all metrics and any activity sessions.
+Full daily record for a specific date including all metrics and activity sessions.
 
 **`get_health_in_range(from_date, to_date)`**
 Multi-day records. Useful for reviewing a trip or training block.
 
-**`get_sleep_trend(days)`**
-Sleep score, deep/REM minutes, and qualifier trend for the past N days.
-
-**`get_hrv_trend(days)`**
-HRV last-night + weekly average + resting HR trend. Primary recovery signal.
-
-**`get_body_battery_trend(days)`**
-Body battery max/min/end-of-day trend. Shows accumulated fatigue and recovery.
+**`get_sleep_trend(days)`** / **`get_hrv_trend(days)`** / **`get_body_battery_trend(days)`**
+Trend views for sleep, HRV, and body battery over the past N days.
 
 **`get_training_load(days)`**
 Recent activity sessions with type, duration, training load, and training effect.
 
-**`get_health_profile()`**
-Reads `context/health/profile.md` — comprehensive guide to all your metrics, personal baselines, normal ranges, and watch face widget guide.
-
-**`get_latest_health_report()`**
-Reads the most recent weekly report from `context/health/reports/`. Narrative summary, sparkline trends, day-by-day table, sleep detail, training section.
-
-**`get_latest_monthly_report()`**
-Reads the most recent monthly report. Month averages, fitness trajectory, week-by-week table.
-
-**`get_activity_report(date)`**
-Reads the activity file for a given date from `context/health/activities/`. Detailed session analysis: HR zones, training effect interpretation, recovery impact.
-
-### Gmail (via claude.ai MCP)
-
-Not part of this server — connected through Claude Code's built-in Gmail integration.
-
-Useful for cross-referencing: find a booking confirmation email, match it to a DuckDB transaction. PAYPRO S.A. in spending data = WizzAir/flight charges — search Gmail with `from:wizzair` to confirm.
+**`get_health_profile()`** / **`get_latest_health_report()`** / **`get_latest_monthly_report()`** / **`get_activity_report(date)`**
+Read generated markdown report files from `context/health/`. Populated by the automation scripts.
 
 ---
 
 ## Context system
 
-The `context/` directory holds markdown files loaded into Claude sessions to provide personal background:
+The `context/` directory holds markdown files you write yourself, loaded into Claude sessions manually to give Claude background about who you are:
 
 ```
 context/
   me/        — identity, goals, current state, work context, travel, life log
-  health/    — profile.md + reports/ (weekly/monthly) + activities/ (per-session)
+  health/    — auto-generated by scripts: profile, weekly/monthly reports, activity files
   work/      — work notes, daily logs, developer context
 ```
 
-`me/` and `work/` files are maintained manually. `health/` files are auto-generated by launchd scripts.
-
-These aren't loaded automatically — they're read at the start of a session when relevant.
+`health/` files are generated automatically by the automation scripts. Everything else is maintained manually. None of this is committed to git — `context/` is gitignored.
 
 ---
 
-## Automation (launchd)
+## Automation (macOS)
 
 Three scripts run on schedule via launchd and send macOS notifications. Unlike cron, launchd fires on wake if the Mac was asleep at the scheduled time.
 
 | Script | Schedule | What it does |
 |---|---|---|
-| `scripts/run_daily.py` | Tue–Sun 10am | Garmin sync → activity files → tap-to-open notification (opens latest weekly report) |
-| `scripts/run_weekly.py` | Mon 10am | Garmin sync → activity files → prev-week report → tap-to-open notification |
-| `scripts/run_monthly.py` | 1st of month 10am | Prev-month report → tap-to-open notification |
-
-Plist files live in `~/Library/LaunchAgents/com.personalkin.{daily,weekly,monthly}.plist`. Load/unload with:
-```bash
-launchctl load   ~/Library/LaunchAgents/com.personalkin.daily.plist
-launchctl unload ~/Library/LaunchAgents/com.personalkin.daily.plist
-launchctl list | grep personalkin   # check status
-```
+| `scripts/run_daily.py` | Tue–Sun 10am | Garmin sync → activity files → notification with today's stats |
+| `scripts/run_weekly.py` | Mon 10am | Garmin sync → previous week's report → tap-to-open notification |
+| `scripts/run_monthly.py` | 1st of month 10am | Previous month's report → tap-to-open notification |
 
 Requires `terminal-notifier`: `brew install terminal-notifier`.
+
+Create plist files in `~/Library/LaunchAgents/` pointing to each script and load with `launchctl load`.
 
 ---
 
@@ -156,59 +155,35 @@ Add to `~/.claude.json` under `mcpServers`:
   "command": "/path/to/Personalkin/.venv/bin/python",
   "args": ["/path/to/Personalkin/server.py"],
   "env": {
-    "SPENDWISELY_DB": "/path/to/SpendWisely/db/spendwisely.duckdb",
+    "SPENDWISELY_DB": "/path/to/spending.duckdb",
     "MYCALENDAR_MONGO_URI": "mongodb+srv://...",
     "GARMIN_DB": "/path/to/garmin-sync/garmin.duckdb"
   }
 }
 ```
 
-Restart Claude Code to reload the server after any changes.
+Only include the env vars for the data sources you're using. Restart Claude Code after any changes.
 
-### SpendWisely dependency
+### Path assumptions
 
-SpendWisely runs as a Docker backend that writes to a local DuckDB file. The `SPENDWISELY_DB` path points to that file. Run `docker compose up` in the SpendWisely repo at least once to checkpoint the WAL file before querying.
-
-### Garmin dependency
-
-Garmin data is synced via the `garmin-sync` repo (separate project). Run `sync.py` there at least once before using health tools.
-
-### Local paths
-
-The automation scripts (`scripts/run_*.py`) assume companion repos live at `~/Projects/garmin-sync/` and `~/Projects/SpendWisely/`. If your layout differs, update the `GARMIN_SYNC` and path constants at the top of each runner script.
+The automation scripts assume companion repos live at `~/Projects/garmin-sync/` and `~/Projects/SpendWisely/`. If your layout differs, update the path constants at the top of each `scripts/run_*.py` file.
 
 ---
 
-## Example queries
+## Adapting to your own data sources
 
-```
-What did I spend in April?
-Show me my top spending categories this month.
-What's on my calendar tomorrow?
-Show me all transactions between June 12 and June 19.
-Find any transactions categorized as Online Shopping that might be flights.
+The pattern for adding or replacing a data source:
 
-How did I sleep this week?
-What's my HRV trend over the last 30 days?
-Show me yesterday's run — how was the training effect?
-How recovered am I today?
-Give me last week's health report.
-```
+1. Write a plain Python function in `tools/` — no MCP imports needed
+2. Register it in `server.py`: `mcp.tool()(fn)`
+3. Test directly: `.venv/bin/python -c "from tools.x import fn; print(fn())"`
+4. Add the env var for credentials to `~/.claude.json`
+5. Restart Claude Code
 
----
-
-## Adding a tool
-
-1. Write a plain function in `tools/spending.py`, `tools/calendar.py`, or `tools/garmin.py` — no MCP imports
-2. Register in `server.py`: `mcp.tool()(fn)`
-3. Test: `.venv/bin/python -c "from tools.x import fn; print(fn())"`
-4. Restart Claude Code
+See `tools/spending.py` and `tools/garmin.py` for examples of DuckDB-backed tools, and `tools/calendar.py` for a MongoDB-backed tool.
 
 ---
 
 ## Known issues
 
-See [IMPROVEMENTS.md](IMPROVEMENTS.md) for tracked issues including:
-- PAYPRO S.A. miscategorization (flights showing as Online Shopping)
-- 36% of transactions uncategorized
-- Calendar times shown in UTC instead of local time
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) for tracked issues.
