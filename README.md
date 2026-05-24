@@ -173,6 +173,10 @@ SpendWisely runs as a Docker backend that writes to a local DuckDB file. The `SP
 
 Garmin data is synced via the `garmin-sync` repo (separate project). Run `sync.py` there at least once before using health tools.
 
+### Local paths
+
+The automation scripts (`scripts/run_*.py`) assume companion repos live at `~/Projects/garmin-sync/` and `~/Projects/SpendWisely/`. If your layout differs, update the `GARMIN_SYNC` and path constants at the top of each runner script.
+
 ---
 
 ## Example queries
