@@ -5,7 +5,7 @@ from tools.spending import (
     get_recent_transactions,
     get_transactions_in_range,
 )
-from tools.calendar import get_upcoming_events, get_events_on_date
+from tools.calendar import get_upcoming_events, get_events_on_date, create_event
 from tools.garmin import (
     get_health_snapshot,
     get_sleep_trend,
@@ -28,6 +28,7 @@ mcp.tool()(get_recent_transactions)
 mcp.tool()(get_transactions_in_range)
 mcp.tool()(get_upcoming_events)
 mcp.tool()(get_events_on_date)
+mcp.tool()(create_event)
 mcp.tool()(get_health_snapshot)
 mcp.tool()(get_sleep_trend)
 mcp.tool()(get_hrv_trend)

@@ -130,7 +130,7 @@ Three scripts run on schedule via launchd and send macOS notifications. Unlike c
 
 | Script | Schedule | What it does |
 |---|---|---|
-| `scripts/run_daily.py` | Tue–Sun 10am | Garmin sync → activity files → notification with today's stats |
+| `scripts/run_daily.py` | Mon–Sun 10am | Garmin sync → activity files → notification with today's stats |
 | `scripts/run_weekly.py` | Mon 10am | Garmin sync → previous week's report → tap-to-open notification |
 | `scripts/run_monthly.py` | 1st of month 10am | Previous month's report → tap-to-open notification |
 

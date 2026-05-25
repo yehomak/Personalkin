@@ -2,18 +2,6 @@
 
 Observed from actual usage of the MCP tools.
 
-## SpendWisely
-
-**WAL file risk** (medium)
-When the Docker volume was migrated to a bind mount, both `spendwisely.duckdb` and `spendwisely.duckdb.wal` were copied. The WAL means the DB wasn't checkpointed — MCP reads may miss recent transactions until the SpendWisely backend opens the DB in write mode and flushes it. Run `docker compose up` once to trigger a checkpoint.
-
-**May income = 0** (medium)
-Suspicious for mid-month. Either salary hasn't arrived yet or the USD salary attribution broke. Check `_salary_month()` logic in SpendWisely parser.
-
-**USD amounts in PLN summaries** (low)
-`get_spending_summary` sums `abs_amount` assuming PLN. USD transactions are included with their bank-converted PLN equivalent — works today but fragile if currency handling in SpendWisely changes.
-
----
 
 ## MyCalendar
 
@@ -25,3 +13,13 @@ Suspicious for mid-month. Either salary hasn't arrived yet or the USD salary att
 
 **Recurring events not flagged** (low)
 Events with a `recurrenceRule` look identical to one-off events in tool output. Should surface a `recurring: true` field so the AI can reason about habits vs. one-time entries.
+
+---
+
+## Notifications
+
+**Telegram bot** (future)
+Replace `terminal-notifier` with a Telegram bot for cross-platform delivery (iPhone, any device). Setup: `@BotFather` → token + `chat_id`. Extract a shared `scripts/notify.py` helper with a `notify_telegram(title, message)` function using `httpx.post`. Also enables notifications from garmin-sync if run on a server.
+
+**Late wake-up gap** (low)
+On an always-on Mac, the 10am launchd job syncs while the user is still asleep — Garmin Connect hasn't finalized sleep data yet. Stats in the notification will be incomplete or from the previous day. Not an issue on a laptop (launchd fires on Mac wake). Fix: add a second sync pass at e.g. noon, or re-run sync on Mac unlock.

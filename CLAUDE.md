@@ -115,7 +115,7 @@ Populated by `~/Projects/garmin-sync/sync.py` (separate repo, own venv).
 ## launchd automation (scripts/)
 Three scripts run on schedule via launchd — fires on wake if Mac was asleep at scheduled time:
 ```
-~/Library/LaunchAgents/com.personalkin.daily.plist   — Tue–Sun 10am: sync + notify
+~/Library/LaunchAgents/com.personalkin.daily.plist   — Mon–Sun 10am: sync + notify
 ~/Library/LaunchAgents/com.personalkin.weekly.plist  — Mon 10am: sync + prev-week report + notify
 ~/Library/LaunchAgents/com.personalkin.monthly.plist — 1st 10am: prev-month report + notify
 ```

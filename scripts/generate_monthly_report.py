@@ -89,12 +89,13 @@ def generate(month_str=None):
     rows = con.execute("""
         SELECT date, sleep_score, sleep_qualifier,
                sleep_total_min, sleep_deep_min, sleep_rem_min, sleep_awake_min,
-               hrv_last_night, hrv_weekly_avg,
+               hrv_last_night, hrv_weekly_avg, hrv_status,
                rhr, bb_max, bb_min, bb_end, stress_avg,
                steps, calories_active,
                training_readiness_score, training_readiness_level,
                endurance_score, fitness_age,
-               spo2_avg, sleep_spo2_avg
+               spo2_avg, sleep_spo2_avg,
+               moderate_activity_min, vigorous_activity_min
         FROM health_days
         WHERE date BETWEEN ? AND ?
         ORDER BY date
@@ -103,12 +104,13 @@ def generate(month_str=None):
     cols = [
         "date","sleep_score","sleep_qualifier",
         "sleep_total_min","sleep_deep_min","sleep_rem_min","sleep_awake_min",
-        "hrv_last_night","hrv_weekly_avg",
+        "hrv_last_night","hrv_weekly_avg","hrv_status",
         "rhr","bb_max","bb_min","bb_end","stress_avg",
         "steps","calories_active",
         "training_readiness_score","training_readiness_level",
         "endurance_score","fitness_age",
         "spo2_avg","sleep_spo2_avg",
+        "moderate_activity_min","vigorous_activity_min",
     ]
     all_rows  = [{k: v for k, v in zip(cols, r)} for r in rows]
     data      = [d for d in all_rows if d.get("sleep_score") or d.get("rhr") or d.get("bb_end")]
@@ -156,7 +158,19 @@ def generate(month_str=None):
 
         hrv_vals = vals("hrv_last_night")
         if hrv_vals:
-            parts.append(f"HRV averaged {sum(hrv_vals)/len(hrv_vals):.0f}ms")
+            hrv_avg = sum(hrv_vals) / len(hrv_vals)
+            if len(hrv_vals) >= 7:
+                mid = len(hrv_vals) // 2
+                first_half = sum(hrv_vals[:mid]) / mid
+                second_half = sum(hrv_vals[mid:]) / (len(hrv_vals) - mid)
+                delta = second_half - first_half
+                trend = f", trending {'up' if delta > 3 else 'down' if delta < -3 else 'flat'} ({'+' if delta >= 0 else ''}{delta:.0f}ms first→second half)"
+            else:
+                trend = ""
+            hrv_statuses = [d.get("hrv_status") for d in data if d.get("hrv_status")]
+            low_days = sum(1 for s in hrv_statuses if s.upper() in ("UNBALANCED", "LOW", "POOR"))
+            status_note = f"; {low_days} days strained status" if low_days > len(hrv_statuses) * 0.3 else ""
+            parts.append(f"HRV averaged {hrv_avg:.0f}ms{trend}{status_note}")
 
         if activities:
             act_types = list(dict.fromkeys(a_[1] for a_ in activities if a_[1]))
@@ -262,13 +276,39 @@ def generate(month_str=None):
             a(f"**Month totals:** {len(activities)} sessions · {total_dur:.0f} min training · load {total_load:.0f}")
             a("")
 
+        # ── Activity Minutes vs WHO ────────────────────────────────────────────
+        mod_total = sum(d.get("moderate_activity_min") or 0 for d in data)
+        vig_total = sum(d.get("vigorous_activity_min") or 0 for d in data)
+        if mod_total or vig_total:
+            weeks_in_month = max(1, len(set(
+                datetime.fromisoformat(str(d["date"])).strftime("%G-W%V") for d in data
+            )))
+            who_target = 150 * weeks_in_month
+            equiv = mod_total + vig_total * 2
+            a("---")
+            a("")
+            a("## Activity Minutes")
+            a("")
+            a(f"| Type | Month Total | WHO Target ({weeks_in_month} weeks) |")
+            a(f"|------|-------------|-------------------------------|")
+            a(f"| Moderate | {mod_total:.0f} min | {150 * weeks_in_month} min |")
+            a(f"| Vigorous | {vig_total:.0f} min | {75 * weeks_in_month} min |")
+            a(f"| Combined equivalent | {equiv:.0f} min | {who_target} min |")
+            a("")
+            pct = round(equiv / who_target * 100) if who_target else 0
+            if pct >= 100:
+                a(f"✓ WHO activity target met ({pct}% of target).")
+            else:
+                a(f"→ {pct}% of WHO monthly activity target ({who_target - equiv:.0f} equivalent minutes short).")
+            a("")
+
         # ── Week by Week ──────────────────────────────────────────────────────
         a("---")
         a("")
         a("## Week by Week")
         a("")
-        a("| Week | Days w/data | Avg Sleep | Avg HRV | Avg RHR | Avg BB | Workouts |")
-        a("|------|-------------|-----------|---------|---------|--------|----------|")
+        a("| Week | Days w/data | Avg Sleep | Avg HRV | Avg RHR | Avg BB | Workouts | Mod+Vig min |")
+        a("|------|-------------|-----------|---------|---------|--------|----------|-------------|")
 
         # Get ISO weeks in this month
         weeks_seen = set()
@@ -284,6 +324,9 @@ def generate(month_str=None):
                 v = [d[key] for d in wk_data if d.get(key) is not None]
                 return round(sum(v)/len(v), 1) if v else None
 
+            wk_mod = sum(d.get("moderate_activity_min") or 0 for d in wk_data)
+            wk_vig = sum(d.get("vigorous_activity_min") or 0 for d in wk_data)
+            act_min_str = f"{wk_mod + wk_vig:.0f}" if (wk_mod or wk_vig) else "—"
             a(
                 f"| {wk} "
                 f"| {len(wk_data)} "
@@ -291,7 +334,8 @@ def generate(month_str=None):
                 f"| {_fmt(wk_avg('hrv_last_night'), 0)} ms "
                 f"| {_fmt(wk_avg('rhr'), 0)} bpm "
                 f"| {_fmt(wk_avg('bb_end'), 0)} "
-                f"| {len(wk_acts)} |"
+                f"| {len(wk_acts)} "
+                f"| {act_min_str} |"
             )
         a("")
 

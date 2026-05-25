@@ -87,6 +87,17 @@ def _bar(value, lo, hi):
     return BARS[max(0, min(len(BARS) - 1, idx))]
 
 
+def _fmt_time(v):
+    if v is None:
+        return "—"
+    try:
+        s = str(v)
+        dt = datetime.fromisoformat(s)
+        return dt.strftime("%H:%M")
+    except Exception:
+        return str(v)[:5]
+
+
 def _te_label(te):
     if te is None:
         return "—"
@@ -128,18 +139,33 @@ def _narrative(data, activities, bl):
         parts.append(f"HRV at {hrv_vals[0]:.0f}ms")
 
     if activities:
-        types = list(dict.fromkeys(a[1] for a in activities if a[1]))
+        types = list(dict.fromkeys(a[1].replace("_", " ").title() for a in activities if a[1]))
         n = len(activities)
         parts.append(f"{n} workout{'s' if n > 1 else ''} logged ({', '.join(types)})")
 
-    r_vals = vals("training_readiness_score")
-    if r_vals:
-        avg_r = sum(r_vals) / len(r_vals)
-        last_r = r_vals[-1]
-        if last_r < 50 and activities:
-            parts.append(f"readiness dropped to {last_r:.0f} ({data[-1].get('training_readiness_level', '').lower()}) after the training — expected")
-        elif avg_r >= 90:
+    r_pairs = [(str(d["date"]), d.get("training_readiness_score"), d.get("training_readiness_level")) for d in data if d.get("training_readiness_score")]
+    if r_pairs:
+        avg_r = sum(r for _, r, _ in r_pairs) / len(r_pairs)
+        if avg_r >= 90:
             parts.append("readiness was prime throughout")
+        elif activities:
+            # look for crash: drop from ≥70 to <40 on consecutive data days
+            for i in range(1, len(r_pairs)):
+                if r_pairs[i][1] < 40 and r_pairs[i-1][1] >= 70:
+                    parts.append(f"readiness crashed to {r_pairs[i][1]:.0f} ({(r_pairs[i][2] or '').title()}) post-training — heavy session cost")
+                    break
+
+    bb_ends = [d.get("bb_end") for d in data if d.get("bb_end") is not None]
+    if len(bb_ends) >= 3:
+        depleted = sum(1 for v in bb_ends if v < 30)
+        if depleted >= 2:
+            parts.append(f"body battery stayed depleted ({depleted}/{len(bb_ends)} days below 30) — accumulated fatigue")
+
+    hrv_statuses = [d.get("hrv_status") for d in data if d.get("hrv_status") and d.get("hrv_status").upper() != "NONE"]
+    if hrv_statuses:
+        low_count = sum(1 for s in hrv_statuses if s.upper() in ("UNBALANCED", "LOW", "POOR"))
+        if low_count >= len(hrv_statuses) / 2:
+            parts.append(f"HRV status strained most of the week ({low_count}/{len(hrv_statuses)} days unbalanced/low) — monitor recovery")
 
     if not parts:
         return "Not enough data this week for a narrative. Sync more days to build the picture."
@@ -191,7 +217,9 @@ def generate(week_str=None):
             date, sleep_score, sleep_qualifier,
             sleep_total_min, sleep_deep_min, sleep_light_min,
             sleep_rem_min, sleep_awake_min, sleep_spo2_avg, sleep_rr_avg,
+            sleep_start, sleep_end,
             hrv_last_night, hrv_weekly_avg, hrv_status,
+            hrv_baseline_low, hrv_baseline_high,
             rhr, hr_min, hr_max,
             bb_max, bb_min, bb_end, stress_avg,
             steps, distance_km, calories_active,
@@ -208,7 +236,9 @@ def generate(week_str=None):
         "date","sleep_score","sleep_qualifier",
         "sleep_total_min","sleep_deep_min","sleep_light_min",
         "sleep_rem_min","sleep_awake_min","sleep_spo2_avg","sleep_rr_avg",
+        "sleep_start","sleep_end",
         "hrv_last_night","hrv_weekly_avg","hrv_status",
+        "hrv_baseline_low","hrv_baseline_high",
         "rhr","hr_min","hr_max",
         "bb_max","bb_min","bb_end","stress_avg",
         "steps","distance_km","calories_active",
@@ -266,10 +296,10 @@ def generate(week_str=None):
         a("")
         a("## Trends")
         a("")
-        day_headers = "    ".join(DAYS)
+        day_initials = "  ".join(d[0] for d in DAYS)
         a(f"```")
-        a(f"{'Metric':<24}  {day_headers}    Avg          Range       Verdict")
-        a(f"{'─'*24}  {'─'*27}  {'─'*9}  {'─'*13}  {'─'*7}")
+        a(f"{'Metric':<24}  {day_initials}   {'Avg':>9}  {'Range':>13}  Verdict")
+        a(f"{'─'*24}  {'─'*19}   {'─'*9}  {'─'*13}  {'─'*7}")
 
         trend_rows = [
             _trend_table(all_days, "sleep_score",             "Sleep Score",     50, 100, 85, 70),
@@ -278,6 +308,7 @@ def generate(week_str=None):
             _trend_table(all_days, "bb_end",                  "Body Battery End", 0, 100, 50, 30),
             _trend_table(all_days, "stress_avg",              "Stress Avg",       0, 100, 25, 50,  higher_is_better=False),
             _trend_table(all_days, "training_readiness_score","Readiness",        0, 100, 75, 50),
+            _trend_table(all_days, "steps",                   "Steps",         2000,15000,8000,5000, decimals=0),
         ]
         for row in trend_rows:
             if row:
@@ -293,21 +324,26 @@ def generate(week_str=None):
         a("")
         a("## Day by Day")
         a("")
-        a("| Day | Sleep | Duration | HRV | RHR | BB end | Stress | Readiness |")
-        a("|-----|-------|----------|-----|-----|--------|--------|-----------|")
+        a("| Day | Sleep | Duration | HRV | HRV Status | RHR | BB end | Stress | Readiness |")
+        a("|-----|-------|----------|-----|------------|-----|--------|--------|-----------|")
         for d in all_days:
             day_name = datetime.fromisoformat(str(d["date"])).strftime("%a %b %d")
-            q = (d.get("sleep_qualifier") or "")[:4]
+            q = (d.get("sleep_qualifier") or "")[:4].title()
             sleep_str = f"{_fmt(d.get('sleep_score'), 0)} ({q})" if d.get("sleep_score") else "—"
+            raw_status = (d.get("hrv_status") or "").upper()
+            hrv_status = "—" if not raw_status or raw_status == "NONE" else raw_status.title()
+            dur_str = f"{_fmt(d.get('sleep_total_min'), 0)} min" if d.get("sleep_total_min") else "—"
+            level = (d.get("training_readiness_level") or "").title()
             a(
                 f"| {day_name} "
                 f"| {sleep_str} "
-                f"| {_fmt(d.get('sleep_total_min'), 0)} min "
+                f"| {dur_str} "
                 f"| {_fmt(d.get('hrv_last_night'), 0)} ms "
+                f"| {hrv_status} "
                 f"| {_fmt(d.get('rhr'), 0)} bpm "
                 f"| {_fmt(d.get('bb_end'), 0)} "
                 f"| {_fmt(d.get('stress_avg'), 0)} "
-                f"| {_fmt(d.get('training_readiness_score'), 0)} {d.get('training_readiness_level') or ''} |"
+                f"| {_fmt(d.get('training_readiness_score'), 0)} {level} |"
             )
         a("")
 
@@ -318,13 +354,17 @@ def generate(week_str=None):
             a("")
             a("## Sleep Detail")
             a("")
-            a("| Day | Score | Total | Deep | REM | Light | Awake | SpO2 | RR |")
-            a("|-----|-------|-------|------|-----|-------|-------|------|-----|")
+            a("| Day | Bedtime | Wake | Score | Total | Deep | REM | Light | Awake | SpO2 | RR |")
+            a("|-----|---------|------|-------|-------|------|-----|-------|-------|------|-----|")
             for d in sleep_days:
                 day_name = datetime.fromisoformat(str(d["date"])).strftime("%a %b %d")
-                light_min = (d.get("sleep_total_min") or 0) - (d.get("sleep_deep_min") or 0) - (d.get("sleep_rem_min") or 0)
+                light_min = d.get("sleep_light_min")
+                if light_min is None:
+                    light_min = (d.get("sleep_total_min") or 0) - (d.get("sleep_deep_min") or 0) - (d.get("sleep_rem_min") or 0)
                 a(
                     f"| {day_name} "
+                    f"| {_fmt_time(d.get('sleep_start'))} "
+                    f"| {_fmt_time(d.get('sleep_end'))} "
                     f"| {_fmt(d.get('sleep_score'), 0)} "
                     f"| {_fmt(d.get('sleep_total_min'), 0)} min "
                     f"| {_fmt(d.get('sleep_deep_min'), 0)} min "
@@ -334,6 +374,12 @@ def generate(week_str=None):
                     f"| {_fmt(d.get('sleep_spo2_avg'), 1)}% "
                     f"| {_fmt(d.get('sleep_rr_avg'), 1)} |"
                 )
+
+            # Sleep consistency note
+            bedtimes = [d.get("sleep_start") for d in sleep_days if d.get("sleep_start")]
+            if len(bedtimes) >= 3:
+                a("")
+                a("_Bedtime consistency matters as much as duration — varying by > 1 h disrupts circadian rhythm._")
             a("")
             a("**Deep sleep target:** 60–90 min — physical repair, growth hormone. Getting more deep than target is a sign of high recovery demand.")
             a("**REM target:** 90–120 min — memory, emotional processing. Below 60 min often means sleep was cut short or disrupted.")
@@ -361,45 +407,68 @@ def generate(week_str=None):
                     pace_m = int(pace_min_km)
                     pace_s = int((pace_min_km - pace_m) * 60)
                     a(f"| Avg Pace | {pace_m}:{pace_s:02d} min/km |")
-                a(f"| Avg HR | {_fmt(avg_hr, 0)} bpm |")
-                a(f"| Max HR | {_fmt(max_hr, 0)} bpm |")
-                a(f"| Calories | {_fmt(cals, 0)} kcal |")
-                a(f"| Training Load | {_fmt(load, 0)} |")
-                a(f"| Aerobic Effect | {_fmt(ae, 1)} — {_te_label(ae)} |")
-                a(f"| Anaerobic Effect | {_fmt(an, 1)} — {_te_label(an)} |")
+                if avg_hr:
+                    a(f"| Avg HR | {_fmt(avg_hr, 0)} bpm |")
+                if max_hr:
+                    a(f"| Max HR | {_fmt(max_hr, 0)} bpm |")
+                if cals:
+                    a(f"| Calories | {_fmt(cals, 0)} kcal |")
+                if load:
+                    a(f"| Training Load | {_fmt(load, 0)} |")
+                if ae is not None:
+                    a(f"| Aerobic Effect | {_fmt(ae, 1)} — {_te_label(ae)} |")
+                if an is not None:
+                    a(f"| Anaerobic Effect | {_fmt(an, 1)} — {_te_label(an)} |")
                 a("")
 
+                if not avg_hr and not load:
+                    a("_HR and training load not recorded — watch may not have been worn or this activity type doesn't capture HR automatically._")
+                    a("")
+
+                # Low readiness flag
+                day_readiness = None
+                for d in data:
+                    if str(d.get("date")) == str(act_date):
+                        day_readiness = d.get("training_readiness_score")
+                        break
+                if day_readiness and day_readiness < 50:
+                    a(f"⚠️ **Readiness was {day_readiness:.0f} ({(next((d.get('training_readiness_level','') for d in data if str(d.get('date'))==str(act_date)), '') or '').title()}) this morning** — training on low readiness increases injury risk and slows adaptation.")
+                    a("")
+
                 # Training Effect explanation
-                a("**What these numbers mean:**")
-                a("")
-                if ae is not None:
-                    if ae >= 4.0:
-                        a(f"- Aerobic TE {ae:.1f} = **Highly Improving** — this was a hard session that pushed your aerobic system significantly. High adaptation stimulus but needs adequate recovery.")
-                    elif ae >= 3.0:
-                        a(f"- Aerobic TE {ae:.1f} = **Improving** — solid aerobic work. Good stimulus for building endurance without overdoing it.")
-                    elif ae >= 2.0:
-                        a(f"- Aerobic TE {ae:.1f} = **Maintaining** — keeps current fitness but won't build it. Good for recovery days.")
-                    else:
-                        a(f"- Aerobic TE {ae:.1f} = **Recovery** — very easy effort, minimal training stimulus.")
-                if an is not None and an >= 1.5:
-                    if an >= 3.0:
-                        a(f"- Anaerobic TE {an:.1f} = **Improving** — you hit some higher-intensity work, training your lactate system.")
-                    else:
-                        a(f"- Anaerobic TE {an:.1f} = **Maintaining** — minor anaerobic demand, mostly aerobic session.")
+                if ae is not None or (an is not None and an >= 1.5):
+                    a("**What these numbers mean:**")
+                    a("")
+                    if ae is not None:
+                        if ae >= 4.0:
+                            a(f"- Aerobic TE {ae:.1f} = **Highly Improving** — hard session, significant aerobic stimulus. Needs adequate recovery.")
+                        elif ae >= 3.0:
+                            a(f"- Aerobic TE {ae:.1f} = **Improving** — solid aerobic work. Good stimulus without overdoing it.")
+                        elif ae >= 2.0:
+                            a(f"- Aerobic TE {ae:.1f} = **Maintaining** — keeps current fitness but won't build it. Good for recovery days.")
+                        else:
+                            a(f"- Aerobic TE {ae:.1f} = **Recovery** — very easy effort, minimal training stimulus.")
+                    if an is not None and an >= 1.5:
+                        if an >= 3.0:
+                            a(f"- Anaerobic TE {an:.1f} = **Improving** — meaningful high-intensity work, training your lactate system.")
+                        else:
+                            a(f"- Anaerobic TE {an:.1f} = **Maintaining** — minor anaerobic demand, mostly aerobic session.")
 
                 if avg_hr and max_hr:
                     a("")
                     a("**Effort context (estimated from HR):**")
                     a("")
-                    # Estimate max HR as 220 - age (rough) or use max_hr from data as proxy
-                    # Since we don't have age, use max_hr as upper bound context
-                    a(f"Avg HR of {avg_hr} bpm with max {max_hr} bpm suggests a **moderate-to-hard effort**.")
                     if avg_hr >= 150:
-                        a("Sustained high HR — significant cardiovascular demand. This session will drive both aerobic adaptation and fatigue.")
+                        effort = "high-intensity"
+                        context = "Sustained high HR — significant cardiovascular demand. Drives both aerobic adaptation and fatigue."
                     elif avg_hr >= 130:
-                        a("HR in the aerobic-to-threshold range — productive training that develops both aerobic capacity and economy.")
+                        effort = "moderate-to-hard"
+                        context = "HR in the aerobic-to-threshold range — productive training for aerobic capacity and economy."
                     else:
-                        a("HR stayed mostly aerobic — excellent for base building and fat oxidation without excessive fatigue.")
+                        effort = "aerobic/easy"
+                        context = "HR stayed mostly aerobic — excellent for base building and fat oxidation without excessive fatigue."
+                    a(f"Avg HR {avg_hr} bpm / max {max_hr} bpm → **{effort}** effort.")
+                    a(context)
 
                 # HR zones if available
                 zones = [z1, z2, z3, z4, z5]
@@ -412,6 +481,14 @@ def generate(week_str=None):
                     for i, (z_label, z_range, z_desc) in enumerate(HR_ZONE_DESCRIPTIONS):
                         z_val = zones[i]
                         a(f"| {z_label} | {z_range} | {_fmt(z_val, 0)} min | {z_desc} |")
+                    if z2 is not None and dur:
+                        z2_pct = round(z2 / dur * 100)
+                        if z2_pct >= 40:
+                            a(f"")
+                            a(f"Zone 2 was {z2_pct}% of session time — good aerobic base work.")
+                        elif z2_pct <= 15 and (z3 or 0) + (z4 or 0) + (z5 or 0) > dur * 0.5:
+                            a(f"")
+                            a(f"Zone 2 was only {z2_pct}% — high-intensity session. Good for top-end fitness but pair with easy days.")
                 a("")
 
                 # Recovery context
@@ -434,6 +511,28 @@ def generate(week_str=None):
                 a("")
         else:
             a("_No workouts logged this week._")
+            a("")
+
+        # ── Activity Minutes ──────────────────────────────────────────────────
+        mod_total = sum(d.get("moderate_activity_min") or 0 for d in data)
+        vig_total = sum(d.get("vigorous_activity_min") or 0 for d in data)
+        if mod_total or vig_total:
+            a("---")
+            a("")
+            a("## Activity Minutes")
+            a("")
+            equiv = mod_total + vig_total * 2
+            a(f"| Type | This Week | WHO Target/week |")
+            a(f"|------|-----------|-----------------|")
+            a(f"| Moderate activity | {mod_total:.0f} min | 150 min |")
+            a(f"| Vigorous activity | {vig_total:.0f} min | 75 min |")
+            a(f"| Combined equivalent | {equiv:.0f} min | 150 min |")
+            a("")
+            if equiv >= 150:
+                a("✓ WHO weekly activity target met.")
+            else:
+                a(f"→ {150 - equiv:.0f} equivalent minutes short of WHO target.")
+            a(f"_Based on {len(data)} day(s) with data — may undercount if early-week days weren't synced._")
             a("")
 
         # ── Highlights ────────────────────────────────────────────────────────
@@ -464,12 +563,19 @@ def generate(week_str=None):
         if worst_hrv and len(vals("hrv_last_night")) > 1:
             a(f"- **Lowest HRV:** {worst_hrv_d} — {_fmt(worst_hrv, 0)} ms")
         if best_r:
-            a(f"- **Peak readiness:** {best_r_d} — {_fmt(best_r, 0)} {data[0].get('training_readiness_level', '')}")
+            best_r_level = next((d.get("training_readiness_level", "") for d in data if d.get("training_readiness_score") == best_r), "")
+            a(f"- **Peak readiness:** {best_r_d} — {_fmt(best_r, 0)} {(best_r_level or '').title()}")
 
         bb_peak = max((d.get("bb_max") for d in data if d.get("bb_max")), default=None)
         bb_floor = min((d.get("bb_min") for d in data if d.get("bb_min")), default=None)
         if bb_peak:
             a(f"- **Body Battery peak:** {_fmt(bb_peak, 0)} · lowest point: {_fmt(bb_floor, 0)}")
+
+        # SpO2 alert
+        spo2_min_val = min((d.get("spo2_min") for d in data if d.get("spo2_min")), default=None)
+        if spo2_min_val and spo2_min_val < 88:
+            spo2_day = next((datetime.fromisoformat(str(d["date"])).strftime("%a %b %d") for d in data if d.get("spo2_min") == spo2_min_val), "")
+            a(f"- ⚠️ **Low SpO2:** {spo2_day} — min {spo2_min_val:.0f}% (normal floor ≥88%) — may be sensor movement or sleep-disordered breathing")
 
         # Fitness markers change
         endurance_vals = vals("endurance_score")
@@ -532,48 +638,25 @@ def generate(week_str=None):
             continue
         a(f"**{day_name}**")
         a("")
-        if any(k.startswith("sleep") for k in non_null):
-            parts = []
-            for k in ["sleep_score","sleep_qualifier","sleep_total_min","sleep_deep_min","sleep_rem_min","sleep_awake_min","sleep_spo2_avg","sleep_rr_avg"]:
-                if non_null.get(k) is not None:
-                    parts.append(f"{k}={non_null[k]}")
-            a("sleep: " + ", ".join(parts))
-        hrv_parts = []
-        for k in ["hrv_last_night","hrv_weekly_avg","hrv_status"]:
-            if non_null.get(k) is not None:
-                hrv_parts.append(f"{k}={non_null[k]}")
-        if hrv_parts:
-            a("hrv: " + ", ".join(hrv_parts))
-        hr_parts = []
-        for k in ["rhr","hr_min","hr_max"]:
-            if non_null.get(k) is not None:
-                hr_parts.append(f"{k}={non_null[k]}")
-        if hr_parts:
-            a("hr: " + ", ".join(hr_parts))
-        bb_parts = []
-        for k in ["bb_max","bb_min","bb_end","stress_avg"]:
-            if non_null.get(k) is not None:
-                bb_parts.append(f"{k}={non_null[k]}")
-        if bb_parts:
-            a("bb/stress: " + ", ".join(bb_parts))
-        act_parts = []
-        for k in ["steps","distance_km","calories_active","calories_total","floors_up","moderate_activity_min","vigorous_activity_min"]:
-            if non_null.get(k) is not None:
-                act_parts.append(f"{k}={non_null[k]}")
-        if act_parts:
-            a("activity: " + ", ".join(act_parts))
-        r_parts = []
-        for k in ["training_readiness_score","training_readiness_level","recovery_time_hours"]:
-            if non_null.get(k) is not None:
-                r_parts.append(f"{k}={non_null[k]}")
-        if r_parts:
-            a("readiness: " + ", ".join(r_parts))
-        fit_parts = []
-        for k in ["endurance_score","fitness_age","spo2_avg","spo2_min","rr_waking_avg"]:
-            if non_null.get(k) is not None:
-                fit_parts.append(f"{k}={non_null[k]}")
-        if fit_parts:
-            a("fitness/other: " + ", ".join(fit_parts))
+        sleep_keys = ["sleep_score","sleep_qualifier","sleep_total_min","sleep_deep_min","sleep_rem_min","sleep_awake_min","sleep_spo2_avg","sleep_rr_avg"]
+        sleep_parts = [f"{k}={round(non_null[k],1) if isinstance(non_null[k],float) else non_null[k]}" for k in sleep_keys if non_null.get(k) is not None]
+        if sleep_parts:
+            a("sleep: " + ", ".join(sleep_parts))
+        def _raw(keys):
+            return [f"{k}={round(non_null[k],1) if isinstance(non_null[k],float) else non_null[k]}" for k in keys if non_null.get(k) is not None]
+
+        hrv_parts = _raw(["hrv_last_night","hrv_weekly_avg","hrv_status"])
+        if hrv_parts: a("hrv: " + ", ".join(hrv_parts))
+        hr_parts = _raw(["rhr","hr_min","hr_max"])
+        if hr_parts: a("hr: " + ", ".join(hr_parts))
+        bb_parts = _raw(["bb_max","bb_min","bb_end","stress_avg"])
+        if bb_parts: a("bb/stress: " + ", ".join(bb_parts))
+        act_parts = _raw(["steps","distance_km","calories_active","calories_total","floors_up","moderate_activity_min","vigorous_activity_min"])
+        if act_parts: a("activity: " + ", ".join(act_parts))
+        r_parts = _raw(["training_readiness_score","training_readiness_level","recovery_time_hours"])
+        if r_parts: a("readiness: " + ", ".join(r_parts))
+        fit_parts = _raw(["endurance_score","fitness_age","spo2_avg","spo2_min","rr_waking_avg"])
+        if fit_parts: a("fitness/other: " + ", ".join(fit_parts))
         a("")
 
     if activities:

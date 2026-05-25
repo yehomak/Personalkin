@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from pymongo import MongoClient
 
@@ -53,6 +54,79 @@ def get_upcoming_events(days: int = 7) -> str:
         })
 
     return json.dumps({"days": days, "count": len(events), "events": events}, indent=2)
+
+
+def create_event(
+    title: str,
+    date: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    duration_min: int | None = None,
+    category: str | None = None,
+    all_day: bool = False,
+    notes: str = "",
+) -> str:
+    """
+    Create a new event in MyCalendar.
+    date: YYYY-MM-DD
+    start_time / end_time: HH:MM in UTC
+    duration_min: alternative to end_time (minutes)
+    category: category name, e.g. "Travel", "Work", "Body", "Life"
+    notes: stored as description
+    """
+    db = _db()
+
+    sample = db.events.find_one({}, {"userId": 1})
+    if not sample:
+        return json.dumps({"error": "no existing events — cannot determine userId"})
+    user_id = sample["userId"]
+
+    cat_id = None
+    if category:
+        name_to_id = {v: k for k, v in _category_map().items()}
+        cat_id = name_to_id.get(category)
+        if not cat_id:
+            return json.dumps({"error": f"unknown category '{category}'. available: {sorted(name_to_id)}"})
+
+    if all_day:
+        start_at = f"{date}T00:00:00+00:00"
+        end_at = f"{date}T00:00:00+00:00"
+    else:
+        if not start_time:
+            return json.dumps({"error": "start_time required for timed events (HH:MM UTC)"})
+        start_at = f"{date}T{start_time}:00+00:00"
+        if end_time:
+            end_at = f"{date}T{end_time}:00+00:00"
+        elif duration_min:
+            dt = datetime.fromisoformat(start_at)
+            end_at = (dt + timedelta(minutes=duration_min)).isoformat()
+        else:
+            return json.dumps({"error": "provide end_time or duration_min"})
+
+    event = {
+        "id": str(uuid.uuid4()),
+        "userId": user_id,
+        "title": title,
+        "startAt": start_at,
+        "endAt": end_at,
+        "allDay": all_day,
+        "categoryId": cat_id,
+        "color": None,
+        "pendingSync": False,
+        "description": notes,
+    }
+    db.events.insert_one(event)
+
+    return json.dumps({
+        "created": True,
+        "id": event["id"],
+        "title": title,
+        "date": date,
+        "start_utc": start_at,
+        "end_utc": end_at,
+        "category": category,
+        "notes": notes,
+    }, indent=2)
 
 
 def get_events_on_date(date: str) -> str:
