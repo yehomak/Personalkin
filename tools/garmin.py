@@ -175,8 +175,10 @@ def get_body_battery_trend(days: int = 14) -> str:
 def get_training_load(days: int = 14) -> str:
     """
     Training readiness and activity log for the past N days.
-    Returns daily readiness score/level and all workouts with type, duration, HR, and training load.
-    Use this to assess training volume, recovery balance, and overreaching risk.
+    Returns daily readiness score/level and all workouts with type, duration, HR, training load,
+    full HR zone breakdown (z1–z5 minutes), and pace (for GPS activities like running).
+    Use this to assess training volume, zone distribution, recovery balance, and overreaching risk.
+    avg_pace_min_km is null for non-GPS activities (strength, MMA, etc.).
     """
     start = _days_back(days)
     conn = _conn()
@@ -197,7 +199,8 @@ def get_training_load(days: int = 14) -> str:
             date, start_time, activity_type, duration_min,
             avg_hr, max_hr, calories, training_load,
             training_effect_aerobic, training_effect_anaerobic,
-            hr_zone4_min, hr_zone5_min
+            hr_zone1_min, hr_zone2_min, hr_zone3_min, hr_zone4_min, hr_zone5_min,
+            avg_pace_min_km
         FROM health_activities
         WHERE date >= ?
         ORDER BY date, start_time
@@ -221,7 +224,11 @@ def get_training_load(days: int = 14) -> str:
                 "avg_hr": r[4], "max_hr": r[5], "calories": r[6],
                 "training_load": r[7],
                 "aerobic_effect": r[8], "anaerobic_effect": r[9],
-                "hr_zone4_min": r[10], "hr_zone5_min": r[11],
+                "hr_zones": {
+                    "z1": r[10], "z2": r[11], "z3": r[12],
+                    "z4": r[13], "z5": r[14],
+                },
+                "avg_pace_min_km": r[15],
             }
             for r in activities
         ],
@@ -343,10 +350,10 @@ def get_latest_health_report() -> str:
     highlights, baseline comparison, and raw data.
     Run scripts/generate_report.py to regenerate for the current week.
     """
-    reports_dir = HEALTH_DIR / "reports"
+    reports_dir = HEALTH_DIR / "reports" / "weekly"
     if not reports_dir.exists():
         return json.dumps({"error": "No health reports found. Run: python scripts/generate_report.py"})
-    reports = sorted(reports_dir.glob("????-W??.md"), reverse=True)
+    reports = sorted(reports_dir.glob("????-??-??.md"), reverse=True)
     if not reports:
         return json.dumps({"error": "No weekly reports found. Run: python scripts/generate_report.py"})
     return reports[0].read_text()
@@ -359,7 +366,7 @@ def get_latest_monthly_report() -> str:
     and full raw data table.
     Run scripts/generate_monthly_report.py to regenerate.
     """
-    reports_dir = HEALTH_DIR / "reports"
+    reports_dir = HEALTH_DIR / "reports" / "monthly"
     if not reports_dir.exists():
         return json.dumps({"error": "No reports found. Run: python scripts/generate_monthly_report.py"})
     reports = sorted(reports_dir.glob("????-??.md"), reverse=True)
