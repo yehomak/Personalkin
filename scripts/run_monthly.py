@@ -18,7 +18,7 @@ PERSONALKIN = Path(__file__).parent.parent
 GARMIN_DB         = str(GARMIN_SYNC / "garmin.duckdb")
 MAIN_VENV         = str(PERSONALKIN / ".venv/bin/python")
 TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier"
-REPORTS_DIR       = PERSONALKIN / "context" / "health" / "reports"
+REPORTS_DIR       = PERSONALKIN / "context" / "health" / "reports" / "monthly"
 ENV               = {**os.environ, "GARMIN_DB": GARMIN_DB}
 
 

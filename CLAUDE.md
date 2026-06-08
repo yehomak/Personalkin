@@ -97,8 +97,8 @@ health_days:       date, steps, step_goal, floors_up, distance_km,
                    recovery_time_hours, endurance_score, fitness_age
 
 health_activities: date, type, duration_min, distance_km, avg_hr, max_hr,
-                   calories, training_load, aerobic_te, anaerobic_te,
-                   avg_pace_min_km, hr_zone_1_min … hr_zone_5_min
+                   calories, training_load, training_effect_aerobic, training_effect_anaerobic,
+                   avg_pace_min_km, hr_zone1_min … hr_zone5_min
 ```
 Populated by `~/Projects/garmin-sync/sync.py` (separate repo, own venv).
 

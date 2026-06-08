@@ -107,7 +107,7 @@ def generate():
     lines = []
     a = lines.append
 
-    a("# Health Profile — Yehor")
+    a("# Health Profile")
     a("")
     a(f"_Generated: {today} · Data: {data_days} day(s) with readings ({data_from} → {data_to})_")
     a("")

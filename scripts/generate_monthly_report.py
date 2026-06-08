@@ -17,7 +17,7 @@ from pathlib import Path
 import duckdb
 
 DB_PATH     = os.environ.get("GARMIN_DB", str(Path.home() / "Projects/garmin-sync/garmin.duckdb"))
-REPORTS_DIR = Path(__file__).parent.parent / "context" / "health" / "reports"
+REPORTS_DIR = Path(__file__).parent.parent / "context" / "health" / "reports" / "monthly"
 
 
 def _conn():

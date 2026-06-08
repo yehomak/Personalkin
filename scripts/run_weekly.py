@@ -18,7 +18,7 @@ GARMIN_DB         = str(GARMIN_SYNC / "garmin.duckdb")
 SYNC_VENV         = str(GARMIN_SYNC / ".venv/bin/python")
 MAIN_VENV         = str(PERSONALKIN / ".venv/bin/python")
 TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier"
-REPORTS_DIR       = PERSONALKIN / "context" / "health" / "reports"
+REPORTS_DIR       = PERSONALKIN / "context" / "health" / "reports" / "weekly"
 ENV               = {**os.environ, "GARMIN_DB": GARMIN_DB}
 
 
@@ -80,16 +80,19 @@ if __name__ == "__main__":
     monday = today - timedelta(days=today.weekday()) - timedelta(days=7)
     sunday = monday + timedelta(days=6)
     week_label = monday.strftime("%G-W%V")
+    file_label = monday.strftime("%Y-%m-%d")
+    week_of_month = (monday.day - 1) // 7 + 1
+    notif_label = f"{monday.strftime('%B')}, Week {week_of_month}"
 
     run([SYNC_VENV, "sync.py"], cwd=GARMIN_SYNC, label="garmin sync")
     run([MAIN_VENV, "scripts/generate_activities.py"], cwd=PERSONALKIN, label="activities")
     run([MAIN_VENV, "scripts/generate_report.py", "--week", week_label], cwd=PERSONALKIN, label="weekly report")
 
     stats       = get_stats(monday.isoformat(), sunday.isoformat())
-    report_path = REPORTS_DIR / f"{week_label}.md"
+    report_path = REPORTS_DIR / f"{file_label}.md"
 
     notify(
-        title=f"📊 Personalkin — Week {week_label}",
+        title=f"📊 Personalkin — {notif_label}",
         message=stats,
         open_path=report_path if report_path.exists() else None,
     )
