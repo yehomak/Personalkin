@@ -13,7 +13,7 @@ from pathlib import Path
 
 import duckdb
 
-GARMIN_SYNC = Path.home() / "Projects/garmin-sync"
+GARMIN_SYNC = Path(os.environ.get("GARMIN_SYNC", str(Path.home() / "Projects/garmin-sync")))
 PERSONALKIN = Path(__file__).parent.parent
 GARMIN_DB         = str(GARMIN_SYNC / "garmin.duckdb")
 MAIN_VENV         = str(PERSONALKIN / ".venv/bin/python")

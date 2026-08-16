@@ -9,7 +9,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-GARMIN_SYNC   = Path.home() / "Projects/garmin-sync"
+GARMIN_SYNC   = Path(os.environ.get("GARMIN_SYNC", str(Path.home() / "Projects/garmin-sync")))
 PERSONALKIN   = Path(__file__).parent.parent
 GARMIN_DB     = str(GARMIN_SYNC / "garmin.duckdb")
 SYNC_VENV         = str(GARMIN_SYNC / ".venv/bin/python")

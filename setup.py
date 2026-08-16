@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Personalkin setup — run once after cloning.
+Personalkin setup — run after garmin-sync is already set up.
 
   python setup.py
 
-Walks through: dependencies → Garmin auth → initial sync →
-physiology profile → macOS notifications → terminal alias → MCP config.
-Safe to re-run; skips steps already done.
+Installs dependencies, configures macOS notifications, adds the `ci`
+terminal alias, and prints the MCP config snippet for Claude Code.
+
+Prerequisite: run `python setup.py` in garmin-sync first.
 """
 
 import json
@@ -16,14 +17,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-PERSONALKIN = Path(__file__).parent
-GARMIN_SYNC = Path(os.environ.get("GARMIN_SYNC", PERSONALKIN.parent / "garmin-sync"))
+PERSONALKIN   = Path(__file__).parent
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def ok(msg):  print(f"  ✓ {msg}")
+def ok(msg):   print(f"  ✓ {msg}")
 def info(msg): print(f"  · {msg}")
 def warn(msg): print(f"  ⚠ {msg}")
 def step(n, total, title): print(f"\n[{n}/{total}] {title}")
@@ -36,8 +34,8 @@ def ask(prompt, default=""):
 def run(cmd, cwd=None, capture=True):
     result = subprocess.run(cmd, cwd=cwd, capture_output=capture, text=True)
     if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "").strip().splitlines()[-1] if
-                           (result.stderr or result.stdout) else "command failed")
+        lines = (result.stderr or result.stdout or "").strip().splitlines()
+        raise RuntimeError(lines[-1] if lines else "command failed")
     return result.stdout.strip()
 
 
@@ -48,102 +46,33 @@ def python_in(venv: Path) -> str:
 # ── step 1: garmin-sync path ──────────────────────────────────────────────────
 
 def confirm_garmin_sync() -> Path:
-    if not GARMIN_SYNC.exists():
-        p = ask(f"garmin-sync path (not found at {GARMIN_SYNC})")
-        path = Path(p).expanduser()
-        if not path.exists():
-            print(f"  Error: {path} does not exist. Clone garmin-sync first.")
+    default = os.environ.get("GARMIN_SYNC", str(Path.home() / "Projects/garmin-sync"))
+    raw = ask("Path to garmin-sync repo", default)
+    path = Path(raw).expanduser()
+    if not (path / "garmin.duckdb").exists():
+        warn(f"garmin.duckdb not found at {path}")
+        warn("Run `python setup.py` in garmin-sync first, then come back.")
+        if ask("Continue anyway?", "n").lower() != "y":
             sys.exit(1)
-        return path
-    ok(f"garmin-sync at {GARMIN_SYNC}")
-    return GARMIN_SYNC
-
-
-# ── step 2: dependencies ──────────────────────────────────────────────────────
-
-def install_deps(garmin_sync: Path):
-    for label, repo, reqs in [
-        ("garmin-sync", garmin_sync, garmin_sync / "requirements.txt"),
-        ("personalkin",  PERSONALKIN,  PERSONALKIN / "requirements.txt"),
-    ]:
-        venv = repo / ".venv"
-        if not venv.exists():
-            info(f"Creating .venv in {label}...")
-            run([sys.executable, "-m", "venv", str(venv)])
-        info(f"Installing {label} requirements...")
-        run([python_in(venv), "-m", "pip", "install", "-q", "-r", str(reqs)])
-        ok(label)
-
-
-# ── step 3: garmin auth ───────────────────────────────────────────────────────
-
-def garmin_auth(garmin_sync: Path):
-    env_file = garmin_sync / ".env"
-    garth    = garmin_sync / ".garth" / "garmin_tokens.json"
-
-    if garth.exists():
-        ok("Garmin session already cached (.garth/)")
-        return
-
-    if not env_file.exists():
-        print()
-        email    = ask("Garmin email")
-        password = ask("Garmin password")
-        env_file.write_text(f"GARMIN_EMAIL={email}\nGARMIN_PASSWORD={password}\n")
-        ok(".env written")
     else:
-        ok(".env found")
-
-    info("Authenticating...")
-    try:
-        run([python_in(garmin_sync / ".venv"), "auth.py"], cwd=garmin_sync)
-        ok("Authenticated")
-    except RuntimeError as e:
-        warn(f"Auth failed: {e}")
-        warn("Try running:  cd garmin-sync && .venv/bin/python auth_interactive.py")
-        if ask("Continue setup anyway?", "y").lower() != "y":
-            sys.exit(1)
+        ok(f"garmin-sync at {path}")
+    return path
 
 
-# ── step 4: initial sync ──────────────────────────────────────────────────────
+# ── step 2: personalkin deps ──────────────────────────────────────────────────
 
-def initial_sync(garmin_sync: Path):
-    db = garmin_sync / "garmin.duckdb"
-    if db.exists():
-        ok(f"Database exists ({db.stat().st_size // 1024} KB) — skipping backfill")
-        return
-
-    days = ask("Days to backfill", "30")
-    try:
-        days = int(days)
-    except ValueError:
-        days = 30
-
-    info(f"Syncing {days} days (this takes a minute)...")
-    run([python_in(garmin_sync / ".venv"), "sync.py", "--backfill", str(days)],
-        cwd=garmin_sync, capture=False)
-    ok(f"{days}-day backfill done")
+def install_deps():
+    venv = PERSONALKIN / ".venv"
+    if not venv.exists():
+        info("Creating .venv...")
+        run([sys.executable, "-m", "venv", str(venv)])
+    info("Installing requirements...")
+    run([python_in(venv), "-m", "pip", "install", "-q", "-r",
+         str(PERSONALKIN / "requirements.txt")])
+    ok("dependencies ready")
 
 
-# ── step 5: physiology profile ────────────────────────────────────────────────
-
-def fetch_physiology(garmin_sync: Path):
-    output = PERSONALKIN / "context" / "health" / "physiology.json"
-    if output.exists():
-        ok("physiology.json already exists — skipping")
-        return
-    info("Fetching from Garmin API...")
-    env = {**os.environ, "GARMIN_SYNC": str(garmin_sync)}
-    try:
-        subprocess.run(
-            [python_in(PERSONALKIN / ".venv"), "scripts/fetch_physiology.py"],
-            cwd=PERSONALKIN, env=env, check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        warn(f"Physiology fetch failed: {e}")
-
-
-# ── step 6: macOS notifications ───────────────────────────────────────────────
+# ── step 3: macOS notifications ───────────────────────────────────────────────
 
 DAILY_PLIST = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -154,6 +83,9 @@ DAILY_PLIST = """\
         <string>{python}</string>
         <string>{script}</string>
     </array>
+    <key>EnvironmentVariables</key><dict>
+        <key>GARMIN_SYNC</key><string>{garmin_sync}</string>
+    </dict>
     <key>StartCalendarInterval</key><array>
         {weekdays}
     </array>
@@ -173,6 +105,9 @@ SIMPLE_PLIST = """\
         <string>{python}</string>
         <string>{script}</string>
     </array>
+    <key>EnvironmentVariables</key><dict>
+        <key>GARMIN_SYNC</key><string>{garmin_sync}</string>
+    </dict>
     <key>StartCalendarInterval</key><dict>
         {interval}
     </dict>
@@ -182,14 +117,14 @@ SIMPLE_PLIST = """\
 """
 
 
-def setup_notifications():
+def setup_notifications(garmin_sync: Path):
     if not shutil.which("terminal-notifier"):
         if shutil.which("brew"):
             info("Installing terminal-notifier...")
             run(["brew", "install", "terminal-notifier"])
             ok("terminal-notifier installed")
         else:
-            warn("Homebrew not found. Install terminal-notifier manually: brew install terminal-notifier")
+            warn("Homebrew not found — install manually: brew install terminal-notifier")
             return
 
     time_str = ask("Notification time (HH:MM)", "10:00")
@@ -198,37 +133,36 @@ def setup_notifications():
     except (ValueError, TypeError):
         h, m = 10, 0
 
-    python    = python_in(PERSONALKIN / ".venv")
-    scripts   = PERSONALKIN / "scripts"
-    la        = LAUNCH_AGENTS
+    py      = python_in(PERSONALKIN / ".venv")
+    scripts = PERSONALKIN / "scripts"
+    gs      = str(garmin_sync)
+    la      = LAUNCH_AGENTS
     la.mkdir(parents=True, exist_ok=True)
 
-    # Daily (every day)
-    weekdays = "\n        ".join(WEEKDAY_ENTRY.format(w=w, h=h, m=m) for w in range(7))
-    daily_content = DAILY_PLIST.format(
-        python=python, script=scripts / "run_daily.py", weekdays=weekdays
+    weekdays = "\n        ".join(
+        WEEKDAY_ENTRY.format(w=w, h=h, m=m) for w in range(7)
     )
-    (la / "com.personalkin.daily.plist").write_text(daily_content)
-
-    # Weekly (Monday)
-    weekly_content = SIMPLE_PLIST.format(
-        label="com.personalkin.weekly", python=python,
-        script=scripts / "run_weekly.py",
-        interval=f"<key>Weekday</key><integer>1</integer><key>Hour</key><integer>{h}</integer><key>Minute</key><integer>{m}</integer>",
-        log="garmin-weekly",
+    (la / "com.personalkin.daily.plist").write_text(
+        DAILY_PLIST.format(python=py, script=scripts / "run_daily.py",
+                           garmin_sync=gs, weekdays=weekdays)
     )
-    (la / "com.personalkin.weekly.plist").write_text(weekly_content)
-
-    # Monthly (1st of month)
-    monthly_content = SIMPLE_PLIST.format(
-        label="com.personalkin.monthly", python=python,
-        script=scripts / "run_monthly.py",
-        interval=f"<key>Day</key><integer>1</integer><key>Hour</key><integer>{h}</integer><key>Minute</key><integer>{m}</integer>",
-        log="garmin-monthly",
+    (la / "com.personalkin.weekly.plist").write_text(
+        SIMPLE_PLIST.format(
+            label="com.personalkin.weekly", python=py,
+            script=scripts / "run_weekly.py", garmin_sync=gs,
+            interval=f"<key>Weekday</key><integer>1</integer><key>Hour</key><integer>{h}</integer><key>Minute</key><integer>{m}</integer>",
+            log="garmin-weekly",
+        )
     )
-    (la / "com.personalkin.monthly.plist").write_text(monthly_content)
+    (la / "com.personalkin.monthly.plist").write_text(
+        SIMPLE_PLIST.format(
+            label="com.personalkin.monthly", python=py,
+            script=scripts / "run_monthly.py", garmin_sync=gs,
+            interval=f"<key>Day</key><integer>1</integer><key>Hour</key><integer>{h}</integer><key>Minute</key><integer>{m}</integer>",
+            log="garmin-monthly",
+        )
+    )
 
-    # Load / reload
     for label in ["com.personalkin.daily", "com.personalkin.weekly", "com.personalkin.monthly"]:
         plist = la / f"{label}.plist"
         subprocess.run(["launchctl", "unload", str(plist)], capture_output=True)
@@ -237,37 +171,37 @@ def setup_notifications():
     ok(f"3 LaunchAgents loaded (daily + weekly Mon + monthly 1st, at {h:02d}:{m:02d})")
 
 
-# ── step 7: ci alias ─────────────────────────────────────────────────────────
+# ── step 4: ci alias ─────────────────────────────────────────────────────────
 
 def setup_alias():
-    python = python_in(PERSONALKIN / ".venv")
+    py     = python_in(PERSONALKIN / ".venv")
     script = PERSONALKIN / "scripts" / "save_checkin.py"
-    alias_line = f"alias ci='{python} {script} --training'"
+    line   = f"alias ci='{py} {script} --training'"
 
     zshrc = Path.home() / ".zshrc"
     if zshrc.exists() and "save_checkin" in zshrc.read_text():
-        ok("ci alias already in .zshrc")
+        ok("ci alias already in ~/.zshrc")
         return
 
     if ask("Add 'ci' alias to ~/.zshrc?", "y").lower() == "y":
         with open(zshrc, "a") as f:
-            f.write(f"\n# Personalkin — log training without watch\n{alias_line}\n")
-        ok("Added to ~/.zshrc  (run: source ~/.zshrc)")
+            f.write(f"\n# Personalkin — log training without watch\n{line}\n")
+        ok("added to ~/.zshrc  (run: source ~/.zshrc)")
     else:
-        info(f"Add manually to ~/.zshrc:\n  {alias_line}")
+        info(f"Add manually:\n  {line}")
 
 
-# ── step 8: MCP config ────────────────────────────────────────────────────────
+# ── MCP config ────────────────────────────────────────────────────────────────
 
 def show_mcp_config(garmin_sync: Path):
-    python  = python_in(PERSONALKIN / ".venv")
     snippet = {
         "personalkin": {
             "type": "stdio",
-            "command": python,
+            "command": python_in(PERSONALKIN / ".venv"),
             "args": [str(PERSONALKIN / "server.py")],
             "env": {
-                "GARMIN_DB": str(garmin_sync / "garmin.duckdb"),
+                "GARMIN_SYNC": str(garmin_sync),
+                "GARMIN_DB":   str(garmin_sync / "garmin.duckdb"),
             },
         }
     }
@@ -284,35 +218,26 @@ def show_mcp_config(garmin_sync: Path):
 
 def main():
     print("\nPersonalkin — Setup")
-    print("─" * 44)
+    print("─" * 40)
 
-    TOTAL = 7
+    TOTAL = 4
 
     step(1, TOTAL, "Locate garmin-sync")
     garmin_sync = confirm_garmin_sync()
 
     step(2, TOTAL, "Install dependencies")
-    install_deps(garmin_sync)
+    install_deps()
 
-    step(3, TOTAL, "Garmin authentication")
-    garmin_auth(garmin_sync)
-
-    step(4, TOTAL, "Initial sync")
-    initial_sync(garmin_sync)
-
-    step(5, TOTAL, "Physiology profile")
-    fetch_physiology(garmin_sync)
-
-    step(6, TOTAL, "macOS notifications")
+    step(3, TOTAL, "macOS notifications")
     if sys.platform == "darwin":
-        setup_notifications()
+        setup_notifications(garmin_sync)
     else:
         info("Skipping — macOS only")
 
-    step(7, TOTAL, "Terminal alias (ci)")
+    step(4, TOTAL, "Terminal alias (ci)")
     setup_alias()
 
-    print("\n" + "─" * 44)
+    print("\n" + "─" * 40)
     print("Setup complete.\n")
     show_mcp_config(garmin_sync)
 
