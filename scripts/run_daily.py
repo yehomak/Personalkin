@@ -18,21 +18,46 @@ TERMINAL_NOTIFIER = "/opt/homebrew/bin/terminal-notifier"
 ENV               = {**__import__("os").environ, "GARMIN_DB": GARMIN_DB}
 
 
-REPORTS_DIR = PERSONALKIN / "context" / "health" / "reports" / "weekly"
+REPORTS_DIR   = PERSONALKIN / "context" / "health" / "reports" / "weekly"
+ICON_PATH     = PERSONALKIN / "assets" / "icon.png"
+CHECKIN_PROMPT = PERSONALKIN / "scripts" / "checkin_prompt.sh"
 
 
-def notify(title, message, open_path=None, sound="default"):
-    cmd = [TERMINAL_NOTIFIER, "-title", title, "-message", message, "-sound", sound, "-timeout", "15"]
+def notify(title, subtitle=None, message=None, open_path=None, sound="default"):
+    cmd = [TERMINAL_NOTIFIER, "-title", title, "-sound", sound, "-timeout", "15",
+           "-group", "personalkin-daily"]
+    if subtitle:
+        cmd += ["-subtitle", subtitle]
+    if message:
+        cmd += ["-message", message]
+    if ICON_PATH.exists():
+        cmd += ["-contentImage", str(ICON_PATH)]
     if open_path:
         cmd += ["-open", f"file://{open_path}"]
     subprocess.run(cmd)
+
+
+def notify_checkin():
+    cmd = [
+        TERMINAL_NOTIFIER,
+        "-title", "Check in",
+        "-message", "Mood · Energy · Training?",
+        "-actions", "Log",
+        "-execute", f"bash {CHECKIN_PROMPT}",
+        "-timeout", "3600",
+        "-group", "personalkin-checkin",
+        "-sound", "none",
+    ]
+    if ICON_PATH.exists():
+        cmd += ["-contentImage", str(ICON_PATH)]
+    subprocess.Popen(cmd)
 
 
 def run(cmd, cwd=None, label=""):
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=ENV)
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "unknown error").strip().splitlines()[-1]
-        notify("❌ Personalkin — Sync Failed", f"{label}: {err[:80]}", sound="Basso")
+        notify("❌ Personalkin — Sync Failed", message=f"{label}: {err[:80]}", sound="Basso")
         sys.exit(1)
     return result.stdout
 
@@ -55,17 +80,41 @@ def get_today_stats():
     if not row:
         return "synced"
     sleep, qualifier, hrv, hrv_avg, readiness, level, bb = row
-    parts = []
+
+    # Compact one-line subtitle: all key metrics
+    # Title: readiness — the most actionable metric, bold and always visible
+    if readiness is not None:
+        title = f"⌚ Personalkin  ·  ⚡{readiness:.0f} {(level or '').title()}"
+    else:
+        title = "⌚ Personalkin — Daily Sync"
+
+    # Subtitle: 3 physiological metrics — safely fits in one line
+    stat_parts = []
     if sleep:
-        parts.append(f"😴 Sleep {sleep:.0f} ({(qualifier or '')[:4]})")
+        stat_parts.append(f"😴{sleep:.0f}")
     if hrv:
-        delta = f" ({'+' if hrv - hrv_avg >= 0 else ''}{hrv - hrv_avg:.0f})" if hrv_avg else ""
-        parts.append(f"💓 HRV {hrv:.0f}ms{delta}")
-    if bb:
-        parts.append(f"🔋 Battery {bb:.0f}")
-    if readiness:
-        parts.append(f"⚡ Readiness {readiness:.0f} ({(level or '').title()})")
-    return "\n".join(parts) if parts else "synced"
+        delta = f"{'+' if hrv - hrv_avg >= 0 else ''}{hrv - hrv_avg:.0f}" if hrv_avg else ""
+        stat_parts.append(f"💓{hrv:.0f}ms" + (f"{delta}" if delta else ""))
+    if bb is not None:
+        stat_parts.append(f"🔋{bb:.0f}")
+    subtitle = " · ".join(stat_parts) if stat_parts else None
+
+    # Message: coaching tip
+    if readiness is not None:
+        if readiness >= 80:
+            tip = "Well recovered — good day to train"
+        elif readiness >= 60:
+            tip = "Moderate readiness — keep intensity light"
+        elif readiness >= 40:
+            tip = "Low readiness — skip hard training"
+        else:
+            tip = "Rest day — body needs full recovery"
+    elif bb is not None and bb < 20:
+        tip = "Low energy — rest or easy activity today"
+    else:
+        tip = None
+
+    return title, subtitle, tip
 
 
 if __name__ == "__main__":
@@ -77,6 +126,8 @@ if __name__ == "__main__":
     run([MAIN_VENV, "scripts/generate_activities.py"], cwd=PERSONALKIN, label="activities")
     run([MAIN_VENV, "scripts/generate_report.py", "--week", week_label], cwd=PERSONALKIN, label="weekly report")
 
-    stats       = get_today_stats()
-    report_path = REPORTS_DIR / monday.strftime("%Y-%m-%d.md")
-    notify("⌚ Personalkin — Daily Sync", stats, open_path=report_path if report_path.exists() else None)
+    title, subtitle, tip = get_today_stats()
+    report_path   = REPORTS_DIR / monday.strftime("%Y-%m-%d.md")
+    notify(title, subtitle=subtitle, message=tip,
+           open_path=report_path if report_path.exists() else None)
+    notify_checkin()
