@@ -32,7 +32,7 @@ def notify(title, subtitle=None, message=None, open_path=None, sound="default"):
     if message:
         cmd += ["-message", message]
     if ICON_PATH.exists():
-        cmd += ["-contentImage", str(ICON_PATH)]
+        cmd += ["-appIcon", ICON_PATH.as_uri()]
     if open_path:
         cmd += ["-open", f"file://{open_path}"]
     subprocess.run(cmd)
@@ -41,16 +41,15 @@ def notify(title, subtitle=None, message=None, open_path=None, sound="default"):
 def notify_checkin():
     cmd = [
         TERMINAL_NOTIFIER,
-        "-title", "Check in",
-        "-message", "Mood · Energy · Training?",
+        "-title", "Personalkin",
+        "-subtitle", "How do you feel today?",
+        "-message", "Mood · Energy · Training",
         "-actions", "Log",
         "-execute", f"bash {CHECKIN_PROMPT}",
         "-timeout", "3600",
         "-group", "personalkin-checkin",
         "-sound", "none",
     ]
-    if ICON_PATH.exists():
-        cmd += ["-contentImage", str(ICON_PATH)]
     subprocess.Popen(cmd)
 
 
@@ -82,36 +81,36 @@ def get_today_stats():
         return "synced"
     sleep, qualifier, hrv, hrv_avg, readiness, level, bb = row
 
-    # Compact one-line subtitle: all key metrics
-    # Title: readiness — the most actionable metric, bold and always visible
+    # Title: readiness — most actionable signal
+    level_str = (level or "").replace("_", " ").title()
     if readiness is not None:
-        title = f"⌚ Personalkin  ·  ⚡{readiness:.0f} {(level or '').title()}"
+        title = f"⚡{readiness:.0f} {level_str}" if level_str else f"⚡{readiness:.0f}"
     else:
-        title = "⌚ Personalkin — Daily Sync"
+        title = "⌚ Personalkin"
 
-    # Subtitle: 3 physiological metrics — safely fits in one line
+    # Subtitle: emoji metrics, compact
     stat_parts = []
-    if sleep:
+    if sleep is not None:
         stat_parts.append(f"😴{sleep:.0f}")
-    if hrv:
-        delta = f"{'+' if hrv - hrv_avg >= 0 else ''}{hrv - hrv_avg:.0f}" if hrv_avg else ""
-        stat_parts.append(f"💓{hrv:.0f}ms" + (f"{delta}" if delta else ""))
+    if hrv is not None:
+        delta = f" ({'+' if hrv - hrv_avg >= 0 else ''}{hrv - hrv_avg:.0f})" if hrv_avg else ""
+        stat_parts.append(f"💓{hrv:.0f}ms{delta}")
     if bb is not None:
         stat_parts.append(f"🔋{bb:.0f}")
-    subtitle = " · ".join(stat_parts) if stat_parts else None
+    subtitle = "  ·  ".join(stat_parts) if stat_parts else None
 
-    # Message: coaching tip
+    # Message: short coaching sentence
     if readiness is not None:
         if readiness >= 80:
-            tip = "Well recovered — good day to train"
+            tip = "Well recovered — good day to train hard"
         elif readiness >= 60:
-            tip = "Moderate readiness — keep intensity light"
+            tip = "Moderate readiness — keep it easy"
         elif readiness >= 40:
             tip = "Low readiness — skip hard training"
         else:
-            tip = "Rest day — body needs full recovery"
+            tip = "Rest day — full recovery needed"
     elif bb is not None and bb < 20:
-        tip = "Low energy — rest or easy activity today"
+        tip = "Low energy — rest or easy movement only"
     else:
         tip = None
 
@@ -131,4 +130,3 @@ if __name__ == "__main__":
     report_path   = REPORTS_DIR / monday.strftime("%Y-%m-%d.md")
     notify(title, subtitle=subtitle, message=tip,
            open_path=report_path if report_path.exists() else None)
-    notify_checkin()
