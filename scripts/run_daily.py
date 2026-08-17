@@ -4,6 +4,7 @@ Daily runner — sync Garmin data, regenerate weekly report, notify with today's
 Run Mon–Sun at 10am via launchd (com.personalkin.daily.plist).
 """
 
+import os
 import subprocess
 import sys
 from datetime import date, timedelta
